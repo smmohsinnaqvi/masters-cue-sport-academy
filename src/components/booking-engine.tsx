@@ -1,4 +1,4 @@
-import { CheckCircle2, Clock3, ShieldCheck, Sparkles } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Clock3, ShieldCheck, Sparkles } from "lucide-react";
 import { useMemo, useState, type FormEvent } from "react";
 
 import { FloorMap } from "@/components/floor-map";
@@ -17,14 +17,22 @@ import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import {
   DURATIONS,
+  OPEN_END,
+  OPEN_START,
   buildDateOptions,
+  conflictFor,
+  daySegments,
   formatPrice,
   formatTime,
   freeStarts,
+  fromTimeInput,
   isRangeFree,
+  nextFreeStart,
   sessionPrice,
   suggestAlternatives,
   tableAvailability,
+  toTimeInput,
+  type DaySegment,
   type TableAvailability,
 } from "@/lib/booking";
 import { MOCK_TABLES, type Table } from "@/lib/mockData";
@@ -36,6 +44,7 @@ export function BookingEngine() {
   const [duration, setDuration] = useState(60);
   const [tableId, setTableId] = useState("snk-1");
   const [start, setStart] = useState<number | null>(null);
+  const [timeInput, setTimeInput] = useState("18:00");
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [confirmed, setConfirmed] = useState(false);
@@ -52,14 +61,36 @@ export function BookingEngine() {
     return map;
   }, [dateOffset, duration]);
 
-  const suggestions = useMemo(
-    () => freeStarts(table.id, dateOffset, duration),
+  const segments = useMemo(() => daySegments(table.id, dateOffset), [table.id, dateOffset]);
+
+  const requested = fromTimeInput(timeInput);
+  const withinHours =
+    requested !== null && requested >= OPEN_START && requested + duration <= OPEN_END;
+  const clash =
+    requested !== null && withinHours
+      ? conflictFor(table.id, dateOffset, requested, duration)
+      : null;
+  const requestedIsFree = requested !== null && withinHours && !clash;
+
+  const nextFree = useMemo(
+    () =>
+      requested === null
+        ? null
+        : nextFreeStart(table.id, dateOffset, duration, Math.max(requested, OPEN_START)),
+    [requested, table.id, dateOffset, duration],
+  );
+
+  const quickStarts = useMemo(
+    () => freeStarts(table.id, dateOffset, duration).slice(0, 8),
     [table.id, dateOffset, duration],
   );
 
   const alternatives = useMemo(
-    () => (suggestions.length === 0 ? suggestAlternatives(table.id, dateOffset, duration, 18 * 60) : []),
-    [suggestions.length, table.id, dateOffset, duration],
+    () =>
+      requested !== null && !requestedIsFree
+        ? suggestAlternatives(table.id, dateOffset, duration, requested)
+        : [],
+    [requested, requestedIsFree, table.id, dateOffset, duration],
   );
 
   function pickTable(next: Table) {
@@ -96,8 +127,9 @@ export function BookingEngine() {
                 Pick your table off the floor map
               </CardTitle>
               <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
-                Choose a date and how long you want to play, tap a table on the plan, then pick a
-                suggested start time. A 10-minute cloth-brushing buffer is kept after every session.
+                Choose a date and how long you want to play, tap a table on the plan, then type any
+                start time — 11:25 works. The timeline shows booked, held and free minutes, with a
+                10-minute cloth-brushing buffer after every session.
               </p>
             </div>
             <div className="flex min-h-12 items-center gap-2 rounded-md border border-felt/35 bg-felt/15 px-3 text-sm text-felt">
@@ -168,42 +200,95 @@ export function BookingEngine() {
             </div>
           </Step>
 
-          <Step number={4} title="Suggested start times">
-            {suggestions.length > 0 ? (
-              <div className="no-scrollbar flex gap-3 overflow-x-auto pb-2">
-                {suggestions.map((value) => (
+          <Step number={4} title="Today's live timeline for this table">
+            <Timeline
+              segments={segments}
+              requestedStart={requested}
+              duration={duration}
+              onPick={(value) => setTimeInput(toTimeInput(value))}
+            />
+          </Step>
+
+          <Step number={5} title="Pick any start time you like">
+            <div className="flex flex-wrap items-end gap-3">
+              <div className="space-y-2">
+                <Label htmlFor="start-time">Start time</Label>
+                <Input
+                  id="start-time"
+                  type="time"
+                  step={60}
+                  value={timeInput}
+                  onChange={(event) => setTimeInput(event.target.value)}
+                  className="min-h-12 w-40 text-base"
+                />
+              </div>
+              {requested !== null ? (
+                <div className="min-h-12 flex items-center rounded-md border border-border bg-surface px-3 text-sm text-muted-foreground">
+                  Ends {formatTime(Math.min(requested + duration, 24 * 60 - 1))} ·{" "}
+                  <span className="ml-1 text-felt">{formatPrice(price)}</span>
+                </div>
+              ) : null}
+            </div>
+
+            {quickStarts.length > 0 ? (
+              <div className="no-scrollbar mt-3 flex gap-2 overflow-x-auto pb-1">
+                {quickStarts.map((value) => (
                   <Button
                     key={value}
                     type="button"
                     variant="outline"
-                    onClick={() => pickStart(value)}
+                    onClick={() => setTimeInput(toTimeInput(value))}
                     className={cn(
-                      "min-h-20 w-36 shrink-0 flex-col items-start border-felt/45 bg-felt/15 px-4 text-left text-felt hover:bg-felt/25",
-                      start === value && "border-felt bg-felt/30",
+                      "min-h-12 shrink-0 border-felt/40 bg-felt/10 px-4 text-felt hover:bg-felt/20",
+                      requested === value && "border-felt bg-felt/25",
                     )}
                   >
-                    <span className="flex w-full items-center justify-between text-xs font-semibold uppercase">
-                      Available
-                      <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
-                    </span>
-                    <span className="mt-2 text-base font-bold text-foreground">
-                      {formatTime(value)}
-                    </span>
-                    <span className="text-xs text-muted-foreground">
-                      to {formatTime(value + duration)}
-                    </span>
+                    {formatTime(value)}
                   </Button>
                 ))}
               </div>
-            ) : (
-              <div className="rounded-lg border border-warning/45 bg-warning/10 p-4">
-                <p className="text-sm font-semibold text-warning">
-                  No {DURATIONS.find((d) => d.minutes === duration)?.label} window left on this
-                  table for {selectedDate.day}.
+            ) : null}
+
+            {requestedIsFree && requested !== null ? (
+              <div className="mt-4 rounded-lg border border-felt/45 bg-felt/10 p-4">
+                <p className="flex items-center gap-2 text-sm font-semibold text-felt">
+                  <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
+                  Free — {formatTime(requested)} to {formatTime(requested + duration)}
                 </p>
+                <Button
+                  type="button"
+                  onClick={() => pickStart(requested)}
+                  className="mt-3 min-h-12 w-full"
+                >
+                  Continue with this time
+                </Button>
+              </div>
+            ) : (
+              <div className="mt-4 rounded-lg border border-warning/45 bg-warning/10 p-4">
+                <p className="flex items-center gap-2 text-sm font-semibold text-warning">
+                  <AlertTriangle className="h-4 w-4" aria-hidden="true" />
+                  {requested === null
+                    ? "Enter a start time in 24-hour format."
+                    : !withinHours
+                      ? `We're open ${formatTime(OPEN_START)} to ${formatTime(OPEN_END)} — this session wouldn't fit.`
+                      : `Taken until ${formatTime((clash?.end ?? 0) + 10)} (includes the 10-minute cloth buffer).`}
+                </p>
+
+                {nextFree !== null ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setTimeInput(toTimeInput(nextFree))}
+                    className="mt-3 min-h-12 w-full justify-between border-felt/45 bg-felt/10 text-felt"
+                  >
+                    <span>Next free on {table.shortName}</span>
+                    <span>{formatTime(nextFree)}</span>
+                  </Button>
+                ) : null}
+
                 {alternatives.length > 0 ? (
                   <div className="mt-3 space-y-2">
-                    <p className="text-sm text-muted-foreground">Closest options:</p>
+                    <p className="text-sm text-muted-foreground">Same time on another table:</p>
                     {alternatives.map((alt) => (
                       <Button
                         key={alt.table.id}
@@ -211,7 +296,7 @@ export function BookingEngine() {
                         variant="outline"
                         onClick={() => {
                           setTableId(alt.table.id);
-                          pickStart(alt.start);
+                          setTimeInput(toTimeInput(alt.start));
                         }}
                         className="min-h-12 w-full justify-between border-border bg-surface/70"
                       >
@@ -220,11 +305,7 @@ export function BookingEngine() {
                       </Button>
                     ))}
                   </div>
-                ) : (
-                  <p className="mt-2 text-sm text-muted-foreground">
-                    Try a shorter session or another date.
-                  </p>
-                )}
+                ) : null}
               </div>
             )}
           </Step>
@@ -317,6 +398,85 @@ export function BookingEngine() {
         </DrawerContent>
       </Drawer>
     </>
+  );
+}
+
+const SEGMENT_TONE: Record<DaySegment["kind"], string> = {
+  FREE: "bg-felt/30",
+  BOOKED: "bg-destructive/60",
+  HELD: "bg-warning/60",
+  BUFFER: "bg-muted",
+};
+
+function Timeline({
+  segments,
+  requestedStart,
+  duration,
+  onPick,
+}: {
+  segments: DaySegment[];
+  requestedStart: number | null;
+  duration: number;
+  onPick: (minutes: number) => void;
+}) {
+  const span = OPEN_END - OPEN_START;
+  const pct = (minutes: number) => ((minutes - OPEN_START) / span) * 100;
+  const hours = Array.from({ length: Math.floor(span / 60) + 1 }, (_, i) => OPEN_START + i * 60);
+
+  return (
+    <div className="rounded-lg border border-border bg-surface p-3">
+      <div className="relative h-12 w-full overflow-hidden rounded-md bg-surface-subtle">
+        {segments.map((segment) => (
+          <button
+            key={`${segment.kind}-${segment.start}`}
+            type="button"
+            disabled={segment.kind !== "FREE"}
+            onClick={() => onPick(segment.start)}
+            aria-label={`${formatTime(segment.start)} to ${formatTime(segment.end)} ${segment.label ?? "free"}`}
+            className={cn(
+              "absolute inset-y-0 border-r border-background/60",
+              SEGMENT_TONE[segment.kind],
+              segment.kind === "FREE" && "cursor-pointer hover:brightness-125",
+            )}
+            style={{ left: `${pct(segment.start)}%`, width: `${pct(segment.end) - pct(segment.start)}%` }}
+          />
+        ))}
+
+        {requestedStart !== null &&
+        requestedStart >= OPEN_START &&
+        requestedStart <= OPEN_END ? (
+          <div
+            className="pointer-events-none absolute inset-y-0 rounded-sm border-2 border-neon bg-neon/20"
+            style={{
+              left: `${pct(requestedStart)}%`,
+              width: `${Math.max(1, pct(Math.min(requestedStart + duration, OPEN_END)) - pct(requestedStart))}%`,
+            }}
+          />
+        ) : null}
+      </div>
+
+      <div className="mt-1 flex justify-between text-[10px] text-muted-foreground">
+        {hours.map((hour) => (
+          <span key={hour}>{(Math.floor(hour / 60) % 12 || 12).toString()}</span>
+        ))}
+      </div>
+
+      <div className="mt-3 flex flex-wrap gap-3 text-xs text-muted-foreground">
+        <LegendSwatch className="bg-felt/60" label="Free — tap to pick" />
+        <LegendSwatch className="bg-destructive/60" label="Booked" />
+        <LegendSwatch className="bg-warning/60" label="On hold" />
+        <LegendSwatch className="bg-muted" label="10-min buffer" />
+      </div>
+    </div>
+  );
+}
+
+function LegendSwatch({ className, label }: { className: string; label: string }) {
+  return (
+    <span className="inline-flex items-center gap-2">
+      <span className={cn("h-2.5 w-4 rounded-sm", className)} />
+      {label}
+    </span>
   );
 }
 

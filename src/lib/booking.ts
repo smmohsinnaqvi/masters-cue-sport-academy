@@ -134,3 +134,98 @@ export function suggestAlternatives(
     .sort((a, b) => Math.abs(a.start - preferredStart) - Math.abs(b.start - preferredStart))
     .slice(0, 3);
 }
+
+/* ---------- minute-precision picking ---------- */
+
+export function toTimeInput(minutes: number) {
+  const h = Math.floor(minutes / 60) % 24;
+  return `${String(h).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
+}
+
+export function fromTimeInput(value: string): number | null {
+  const match = /^(\d{1,2}):(\d{2})$/.exec(value.trim());
+  if (!match) return null;
+  const h = Number(match[1]);
+  const m = Number(match[2]);
+  if (h > 23 || m > 59) return null;
+  return h * 60 + m;
+}
+
+export type SegmentKind = "FREE" | "BOOKED" | "BUFFER" | "HELD";
+
+export interface DaySegment {
+  start: number;
+  end: number;
+  kind: SegmentKind;
+  label?: string;
+}
+
+/** Full opening-hours timeline for one table: booked blocks, their buffers, and free gaps. */
+export function daySegments(
+  tableId: string,
+  dateOffset: number,
+  extra: BookingRecord[] = [],
+): DaySegment[] {
+  const busy = bookingsFor(tableId, dateOffset, extra)
+    .slice()
+    .sort((a, b) => a.start - b.start);
+
+  const segments: DaySegment[] = [];
+  let cursor = OPEN_START;
+
+  for (const booking of busy) {
+    const start = Math.max(OPEN_START, booking.start);
+    const end = Math.min(OPEN_END, booking.end);
+    if (end <= OPEN_START || start >= OPEN_END) continue;
+    if (start > cursor) segments.push({ start: cursor, end: start, kind: "FREE" });
+    segments.push({
+      start,
+      end,
+      kind: booking.status === "HELD" ? "HELD" : "BOOKED",
+      label: booking.status === "HELD" ? "On hold" : "Booked",
+    });
+    cursor = end;
+    const bufferEnd = Math.min(OPEN_END, end + BUFFER);
+    if (bufferEnd > cursor) {
+      segments.push({ start: cursor, end: bufferEnd, kind: "BUFFER", label: "Cloth buffer" });
+      cursor = bufferEnd;
+    }
+  }
+
+  if (cursor < OPEN_END) segments.push({ start: cursor, end: OPEN_END, kind: "FREE" });
+  return segments;
+}
+
+/** The booking that blocks a requested window, if any (buffer included). */
+export function conflictFor(
+  tableId: string,
+  dateOffset: number,
+  start: number,
+  duration: number,
+  extra: BookingRecord[] = [],
+) {
+  const end = start + duration;
+  return (
+    bookingsFor(tableId, dateOffset, extra).find(
+      (b) => !(end + BUFFER <= b.start || start >= b.end + BUFFER),
+    ) ?? null
+  );
+}
+
+/** First minute at or after `from` where the whole window fits on this table. */
+export function nextFreeStart(
+  tableId: string,
+  dateOffset: number,
+  duration: number,
+  from: number,
+  extra: BookingRecord[] = [],
+): number | null {
+  let candidate = Math.max(from, OPEN_START);
+  for (let guard = 0; guard < 64; guard += 1) {
+    if (candidate + duration > OPEN_END) return null;
+    const clash = conflictFor(tableId, dateOffset, candidate, duration, extra);
+    if (!clash) return candidate;
+    candidate = clash.end + BUFFER;
+  }
+  return null;
+}
