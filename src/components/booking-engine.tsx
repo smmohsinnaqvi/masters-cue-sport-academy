@@ -199,42 +199,95 @@ export function BookingEngine() {
             </div>
           </Step>
 
-          <Step number={4} title="Suggested start times">
-            {suggestions.length > 0 ? (
-              <div className="no-scrollbar flex gap-3 overflow-x-auto pb-2">
-                {suggestions.map((value) => (
+          <Step number={4} title="Today's live timeline for this table">
+            <Timeline
+              segments={segments}
+              requestedStart={requested}
+              duration={duration}
+              onPick={(value) => setTimeInput(toTimeInput(value))}
+            />
+          </Step>
+
+          <Step number={5} title="Pick any start time you like">
+            <div className="flex flex-wrap items-end gap-3">
+              <div className="space-y-2">
+                <Label htmlFor="start-time">Start time</Label>
+                <Input
+                  id="start-time"
+                  type="time"
+                  step={60}
+                  value={timeInput}
+                  onChange={(event) => setTimeInput(event.target.value)}
+                  className="min-h-12 w-40 text-base"
+                />
+              </div>
+              {requested !== null ? (
+                <div className="min-h-12 flex items-center rounded-md border border-border bg-surface px-3 text-sm text-muted-foreground">
+                  Ends {formatTime(Math.min(requested + duration, 24 * 60 - 1))} ·{" "}
+                  <span className="ml-1 text-felt">{formatPrice(price)}</span>
+                </div>
+              ) : null}
+            </div>
+
+            {quickStarts.length > 0 ? (
+              <div className="no-scrollbar mt-3 flex gap-2 overflow-x-auto pb-1">
+                {quickStarts.map((value) => (
                   <Button
                     key={value}
                     type="button"
                     variant="outline"
-                    onClick={() => pickStart(value)}
+                    onClick={() => setTimeInput(toTimeInput(value))}
                     className={cn(
-                      "min-h-20 w-36 shrink-0 flex-col items-start border-felt/45 bg-felt/15 px-4 text-left text-felt hover:bg-felt/25",
-                      start === value && "border-felt bg-felt/30",
+                      "min-h-12 shrink-0 border-felt/40 bg-felt/10 px-4 text-felt hover:bg-felt/20",
+                      requested === value && "border-felt bg-felt/25",
                     )}
                   >
-                    <span className="flex w-full items-center justify-between text-xs font-semibold uppercase">
-                      Available
-                      <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
-                    </span>
-                    <span className="mt-2 text-base font-bold text-foreground">
-                      {formatTime(value)}
-                    </span>
-                    <span className="text-xs text-muted-foreground">
-                      to {formatTime(value + duration)}
-                    </span>
+                    {formatTime(value)}
                   </Button>
                 ))}
               </div>
-            ) : (
-              <div className="rounded-lg border border-warning/45 bg-warning/10 p-4">
-                <p className="text-sm font-semibold text-warning">
-                  No {DURATIONS.find((d) => d.minutes === duration)?.label} window left on this
-                  table for {selectedDate.day}.
+            ) : null}
+
+            {requestedIsFree && requested !== null ? (
+              <div className="mt-4 rounded-lg border border-felt/45 bg-felt/10 p-4">
+                <p className="flex items-center gap-2 text-sm font-semibold text-felt">
+                  <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
+                  Free — {formatTime(requested)} to {formatTime(requested + duration)}
                 </p>
+                <Button
+                  type="button"
+                  onClick={() => pickStart(requested)}
+                  className="mt-3 min-h-12 w-full"
+                >
+                  Continue with this time
+                </Button>
+              </div>
+            ) : (
+              <div className="mt-4 rounded-lg border border-warning/45 bg-warning/10 p-4">
+                <p className="flex items-center gap-2 text-sm font-semibold text-warning">
+                  <AlertTriangle className="h-4 w-4" aria-hidden="true" />
+                  {requested === null
+                    ? "Enter a start time in 24-hour format."
+                    : !withinHours
+                      ? `We're open ${formatTime(OPEN_START)} to ${formatTime(OPEN_END)} — this session wouldn't fit.`
+                      : `Taken until ${formatTime((clash?.end ?? 0) + 10)} (includes the 10-minute cloth buffer).`}
+                </p>
+
+                {nextFree !== null ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setTimeInput(toTimeInput(nextFree))}
+                    className="mt-3 min-h-12 w-full justify-between border-felt/45 bg-felt/10 text-felt"
+                  >
+                    <span>Next free on {table.shortName}</span>
+                    <span>{formatTime(nextFree)}</span>
+                  </Button>
+                ) : null}
+
                 {alternatives.length > 0 ? (
                   <div className="mt-3 space-y-2">
-                    <p className="text-sm text-muted-foreground">Closest options:</p>
+                    <p className="text-sm text-muted-foreground">Same time on another table:</p>
                     {alternatives.map((alt) => (
                       <Button
                         key={alt.table.id}
@@ -242,7 +295,7 @@ export function BookingEngine() {
                         variant="outline"
                         onClick={() => {
                           setTableId(alt.table.id);
-                          pickStart(alt.start);
+                          setTimeInput(toTimeInput(alt.start));
                         }}
                         className="min-h-12 w-full justify-between border-border bg-surface/70"
                       >
@@ -251,11 +304,7 @@ export function BookingEngine() {
                       </Button>
                     ))}
                   </div>
-                ) : (
-                  <p className="mt-2 text-sm text-muted-foreground">
-                    Try a shorter session or another date.
-                  </p>
-                )}
+                ) : null}
               </div>
             )}
           </Step>
