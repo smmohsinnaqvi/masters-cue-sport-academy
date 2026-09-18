@@ -127,8 +127,9 @@ export function BookingEngine() {
                 Pick your table off the floor map
               </CardTitle>
               <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
-                Choose a date and how long you want to play, tap a table on the plan, then pick a
-                suggested start time. A 10-minute cloth-brushing buffer is kept after every session.
+                Choose a date and how long you want to play, tap a table on the plan, then type any
+                start time — 11:25 works. The timeline shows booked, held and free minutes, with a
+                10-minute cloth-brushing buffer after every session.
               </p>
             </div>
             <div className="flex min-h-12 items-center gap-2 rounded-md border border-felt/35 bg-felt/15 px-3 text-sm text-felt">
