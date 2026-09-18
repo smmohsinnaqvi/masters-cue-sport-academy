@@ -39,9 +39,7 @@ export default function AdminPage() {
   const unverified = dayRecords.filter((b) => !b.verified && b.status !== "CANCELLED").length;
 
   function toggleVerified(id: string) {
-    setRecords((prev) =>
-      prev.map((b) => (b.id === id ? { ...b, verified: !b.verified } : b)),
-    );
+    setRecords((prev) => prev.map((b) => (b.id === id ? { ...b, verified: !b.verified } : b)));
   }
 
   function cancelBooking(id: string) {

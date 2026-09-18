@@ -59,9 +59,7 @@ function AdminPage() {
   const unverified = dayRecords.filter((b) => !b.verified && b.status !== "CANCELLED").length;
 
   function toggleVerified(id: string) {
-    setRecords((prev) =>
-      prev.map((b) => (b.id === id ? { ...b, verified: !b.verified } : b)),
-    );
+    setRecords((prev) => prev.map((b) => (b.id === id ? { ...b, verified: !b.verified } : b)));
   }
 
   function cancelBooking(id: string) {
@@ -290,15 +288,7 @@ function AdminPage() {
   );
 }
 
-function Kpi({
-  label,
-  value,
-  tone,
-}: {
-  label: string;
-  value: string;
-  tone?: "felt" | "warning";
-}) {
+function Kpi({ label, value, tone }: { label: string; value: string; tone?: "felt" | "warning" }) {
   return (
     <div className="rounded-lg border border-border bg-surface p-4">
       <p className="text-xs text-muted-foreground">{label}</p>

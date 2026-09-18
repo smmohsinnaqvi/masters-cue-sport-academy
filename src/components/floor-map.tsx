@@ -25,7 +25,12 @@ export function FloorMap({
 }) {
   return (
     <div className="rounded-lg border border-border bg-surface-subtle p-3">
-      <svg viewBox="0 0 100 64" className="h-auto w-full" role="group" aria-label="Academy floor plan">
+      <svg
+        viewBox="0 0 100 64"
+        className="h-auto w-full"
+        role="group"
+        aria-label="Academy floor plan"
+      >
         <rect
           x="2"
           y="2"

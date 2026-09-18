@@ -88,73 +88,73 @@ First Task: Generate the global layout, the dark-mode Tailwind configuration, an
 
 export interface Table {
 
-  id: string;
+id: string;
 
-  name: string;
+name: string;
 
-  type: 'SNOOKER' | 'POOL';
+type: 'SNOOKER' | 'POOL';
 
-  size: string;
+size: string;
 
-  hourlyRate: number;
+hourlyRate: number;
 
-  clothType: string;
+clothType: string;
 
-  isActive: boolean;
+isActive: boolean;
 
 }
 
 export interface Slot {
 
-  id: string;
+id: string;
 
-  tableId: string;
+tableId: string;
 
-  startTime: string; // e.g. "10:00 AM"
+startTime: string; // e.g. "10:00 AM"
 
-  endTime: string;   // e.g. "11:00 AM"
+endTime: string; // e.g. "11:00 AM"
 
-  status: 'AVAILABLE' | 'BOOKED' | 'HELD';
+status: 'AVAILABLE' | 'BOOKED' | 'HELD';
 
 }
 
 export interface Tournament {
 
-  id: string;
+id: string;
 
-  title: string;
+title: string;
 
-  gameType: 'Snooker (15-Red)' | '8-Ball Pool' | '9-Ball Pool';
+gameType: 'Snooker (15-Red)' | '8-Ball Pool' | '9-Ball Pool';
 
-  date: string;
+date: string;
 
-  time: string;
+time: string;
 
-  entryFee: number;
+entryFee: number;
 
-  prizePool: number;
+prizePool: number;
 
-  totalSpots: number;
+totalSpots: number;
 
-  spotsLeft: number;
+spotsLeft: number;
 
-  status: 'OPEN' | 'FILLING_FAST' | 'CLOSED';
+status: 'OPEN' | 'FILLING_FAST' | 'CLOSED';
 
 }
 
 export interface CoachingPackage {
 
-  id: string;
+id: string;
 
-  title: string;
+title: string;
 
-  level: 'Beginner' | 'Intermediate' | 'Advanced';
+level: 'Beginner' | 'Intermediate' | 'Advanced';
 
-  duration: string;
+duration: string;
 
-  price: number;
+price: number;
 
-  features: string[];
+features: string[];
 
 }
 
@@ -166,7 +166,7 @@ export interface CoachingPackage {
 
 export const MOCK_TABLES: Table[] = [
 
-  {
+{
 
     id: 'tbl-1',
 
@@ -182,9 +182,9 @@ export const MOCK_TABLES: Table[] = [
 
     isActive: true,
 
-  },
+},
 
-  {
+{
 
     id: 'tbl-2',
 
@@ -200,9 +200,9 @@ export const MOCK_TABLES: Table[] = [
 
     isActive: true,
 
-  },
+},
 
-  {
+{
 
     id: 'tbl-3',
 
@@ -218,9 +218,9 @@ export const MOCK_TABLES: Table[] = [
 
     isActive: true,
 
-  },
+},
 
-  {
+{
 
     id: 'tbl-4',
 
@@ -236,9 +236,9 @@ export const MOCK_TABLES: Table[] = [
 
     isActive: true,
 
-  },
+},
 
-  {
+{
 
     id: 'tbl-5',
 
@@ -254,41 +254,41 @@ export const MOCK_TABLES: Table[] = [
 
     isActive: true,
 
-  },
+},
 
 ];
 
 export const MOCK_SLOTS: Slot[] = [
 
-  { id: 's1', tableId: 'tbl-1', startTime: '10:00 AM', endTime: '11:00 AM', status: 'AVAILABLE' },
+{ id: 's1', tableId: 'tbl-1', startTime: '10:00 AM', endTime: '11:00 AM', status: 'AVAILABLE' },
 
-  { id: 's2', tableId: 'tbl-1', startTime: '11:00 AM', endTime: '12:00 PM', status: 'BOOKED' },
+{ id: 's2', tableId: 'tbl-1', startTime: '11:00 AM', endTime: '12:00 PM', status: 'BOOKED' },
 
-  { id: 's3', tableId: 'tbl-1', startTime: '12:00 PM', endTime: '01:00 PM', status: 'HELD' },
+{ id: 's3', tableId: 'tbl-1', startTime: '12:00 PM', endTime: '01:00 PM', status: 'HELD' },
 
-  { id: 's4', tableId: 'tbl-1', startTime: '01:00 PM', endTime: '02:00 PM', status: 'AVAILABLE' },
+{ id: 's4', tableId: 'tbl-1', startTime: '01:00 PM', endTime: '02:00 PM', status: 'AVAILABLE' },
 
-  { id: 's5', tableId: 'tbl-1', startTime: '02:00 PM', endTime: '03:00 PM', status: 'AVAILABLE' },
+{ id: 's5', tableId: 'tbl-1', startTime: '02:00 PM', endTime: '03:00 PM', status: 'AVAILABLE' },
 
-  { id: 's6', tableId: 'tbl-1', startTime: '03:00 PM', endTime: '04:00 PM', status: 'BOOKED' },
+{ id: 's6', tableId: 'tbl-1', startTime: '03:00 PM', endTime: '04:00 PM', status: 'BOOKED' },
 
-  { id: 's7', tableId: 'tbl-1', startTime: '04:00 PM', endTime: '05:00 PM', status: 'AVAILABLE' },
+{ id: 's7', tableId: 'tbl-1', startTime: '04:00 PM', endTime: '05:00 PM', status: 'AVAILABLE' },
 
-  { id: 's8', tableId: 'tbl-1', startTime: '05:00 PM', endTime: '06:00 PM', status: 'AVAILABLE' },
+{ id: 's8', tableId: 'tbl-1', startTime: '05:00 PM', endTime: '06:00 PM', status: 'AVAILABLE' },
 
-  { id: 's9', tableId: 'tbl-1', startTime: '06:00 PM', endTime: '07:00 PM', status: 'BOOKED' },
+{ id: 's9', tableId: 'tbl-1', startTime: '06:00 PM', endTime: '07:00 PM', status: 'BOOKED' },
 
-  { id: 's10', tableId: 'tbl-1', startTime: '07:00 PM', endTime: '08:00 PM', status: 'BOOKED' },
+{ id: 's10', tableId: 'tbl-1', startTime: '07:00 PM', endTime: '08:00 PM', status: 'BOOKED' },
 
-  { id: 's11', tableId: 'tbl-1', startTime: '08:00 PM', endTime: '09:00 PM', status: 'AVAILABLE' },
+{ id: 's11', tableId: 'tbl-1', startTime: '08:00 PM', endTime: '09:00 PM', status: 'AVAILABLE' },
 
-  { id: 's12', tableId: 'tbl-1', startTime: '09:00 PM', endTime: '10:00 PM', status: 'AVAILABLE' },
+{ id: 's12', tableId: 'tbl-1', startTime: '09:00 PM', endTime: '10:00 PM', status: 'AVAILABLE' },
 
 ];
 
 export const MOCK_TOURNAMENTS: Tournament[] = [
 
-  {
+{
 
     id: 'tourney-1',
 
@@ -310,9 +310,9 @@ export const MOCK_TOURNAMENTS: Tournament[] = [
 
     status: 'FILLING_FAST',
 
-  },
+},
 
-  {
+{
 
     id: 'tourney-2',
 
@@ -334,13 +334,13 @@ export const MOCK_TOURNAMENTS: Tournament[] = [
 
     status: 'OPEN',
 
-  },
+},
 
 ];
 
 export const MOCK_COACHING: CoachingPackage[] = [
 
-  {
+{
 
     id: 'coach-1',
 
@@ -364,9 +364,9 @@ export const MOCK_COACHING: CoachingPackage[] = [
 
     ],
 
-  },
+},
 
-  {
+{
 
     id: 'coach-2',
 
@@ -390,9 +390,9 @@ export const MOCK_COACHING: CoachingPackage[] = [
 
     ],
 
-  },
+},
 
-  {
+{
 
     id: 'coach-3',
 
@@ -416,7 +416,7 @@ export const MOCK_COACHING: CoachingPackage[] = [
 
     ],
 
-  },
+},
 
 ];
 
@@ -432,15 +432,15 @@ export const MOCK_COACHING: CoachingPackage[] = [
 
 INSERT INTO public.tables (id, name, type, size, hourly_rate, is_active) VALUES
 
-  ('a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11', 'Star Match Arena (Table 1)', 'SNOOKER', '12ft', 350.00, TRUE),
+('a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11', 'Star Match Arena (Table 1)', 'SNOOKER', '12ft', 350.00, TRUE),
 
-  ('b1eebc99-9c0b-4ef8-bb6d-6bb9bd380a22', 'Rasson Professional (Table 2)', 'SNOOKER', '12ft', 300.00, TRUE),
+('b1eebc99-9c0b-4ef8-bb6d-6bb9bd380a22', 'Rasson Professional (Table 2)', 'SNOOKER', '12ft', 300.00, TRUE),
 
-  ('c2eebc99-9c0b-4ef8-bb6d-6bb9bd380a33', 'Club Snooker (Table 3)', 'SNOOKER', '12ft', 250.00, TRUE),
+('c2eebc99-9c0b-4ef8-bb6d-6bb9bd380a33', 'Club Snooker (Table 3)', 'SNOOKER', '12ft', 250.00, TRUE),
 
-  ('d3eebc99-9c0b-4ef8-bb6d-6bb9bd380a44', 'Brunswick Pool (Table 4)', 'POOL', '9ft', 200.00, TRUE),
+('d3eebc99-9c0b-4ef8-bb6d-6bb9bd380a44', 'Brunswick Pool (Table 4)', 'POOL', '9ft', 200.00, TRUE),
 
-  ('e4eebc99-9c0b-4ef8-bb6d-6bb9bd380a55', 'Rasson Ox Pool (Table 5)', 'POOL', '9ft', 200.00, TRUE)
+('e4eebc99-9c0b-4ef8-bb6d-6bb9bd380a55', 'Rasson Ox Pool (Table 5)', 'POOL', '9ft', 200.00, TRUE)
 
 ON CONFLICT (id) DO NOTHING;
 
@@ -450,9 +450,9 @@ ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO public.bookings (table_id, customer_name, customer_phone, slot_start, slot_end, status, locked_until) VALUES
 
-  -- Table 1: Confirmed Slot (11:00 AM - 12:00 PM)
+-- Table 1: Confirmed Slot (11:00 AM - 12:00 PM)
 
-  (
+(
 
     'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
 
@@ -468,11 +468,11 @@ INSERT INTO public.bookings (table_id, customer_name, customer_phone, slot_start
 
     NULL
 
-  ),
+),
 
-  -- Table 1: Temporary Held Slot (12:00 PM - 01:00 PM)
+-- Table 1: Temporary Held Slot (12:00 PM - 01:00 PM)
 
-  (
+(
 
     'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
 
@@ -488,11 +488,11 @@ INSERT INTO public.bookings (table_id, customer_name, customer_phone, slot_start
 
     NOW() + INTERVAL '5 minutes'
 
-  ),
+),
 
-  -- Table 1: Confirmed Evening Slot (06:00 PM - 08:00 PM)
+-- Table 1: Confirmed Evening Slot (06:00 PM - 08:00 PM)
 
-  (
+(
 
     'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
 
@@ -508,7 +508,7 @@ INSERT INTO public.bookings (table_id, customer_name, customer_phone, slot_start
 
     NULL
 
-  );
+);
 
 -- 3. OPTIONAL SCHEMA & SEED FOR TOURNAMENTS
 
@@ -540,9 +540,9 @@ CREATE TABLE IF NOT EXISTS public.tournaments (
 
 INSERT INTO public.tournaments (title, game_type, event_date, start_time, entry_fee, prize_pool, total_spots, spots_left, status) VALUES
 
-  ('State Snooker Open Championship', 'Snooker (15-Red)', 'Oct 24 - Oct 26, 2026', '10:00 AM Onwards', 1500.00, 50000.00, 32, 6, 'FILLING_FAST'),
+('State Snooker Open Championship', 'Snooker (15-Red)', 'Oct 24 - Oct 26, 2026', '10:00 AM Onwards', 1500.00, 50000.00, 32, 6, 'FILLING_FAST'),
 
-  ('Weekend 8-Ball Blitz', '8-Ball Pool', 'Next Saturday', '04:00 PM Onwards', 500.00, 15000.00, 16, 10, 'OPEN');
+('Weekend 8-Ball Blitz', '8-Ball Pool', 'Next Saturday', '04:00 PM Onwards', 500.00, 15000.00, 16, 10, 'OPEN');
 
 -- 4. OPTIONAL SCHEMA & SEED FOR COACHING PACKAGES
 
@@ -566,7 +566,7 @@ CREATE TABLE IF NOT EXISTS public.coaching_packages (
 
 INSERT INTO public.coaching_packages (title, level, duration, price, features) VALUES
 
-  (
+(
 
     'Stance & Grip Fundamentals',
 
@@ -578,9 +578,9 @@ INSERT INTO public.coaching_packages (title, level, duration, price, features) V
 
     ARRAY['Bridge hand stabilization', 'Sighting and alignment correction', 'Basic cue action rhythm', 'Includes complimentary table time']
 
-  ),
+),
 
-  (
+(
 
     'Break Building & Cue Ball Control',
 
@@ -592,9 +592,9 @@ INSERT INTO public.coaching_packages (title, level, duration, price, features) V
 
     ARRAY['Positional play & spin control', 'Safety play strategies', 'Video stance analysis', 'Personal cue lock allocation during course']
 
-  ),
+),
 
-  (
+(
 
     'Pro Masterclass & Match Play',
 
@@ -606,7 +606,7 @@ INSERT INTO public.coaching_packages (title, level, duration, price, features) V
 
     ARRAY['1-on-1 coaching with State Level Trainer', 'Tactical frame simulation', 'Free monthly cue locker rental', 'Priority tournament seeding']
 
-  );
+);
 
 This project was built with [Lovable](https://lovable.dev).
 

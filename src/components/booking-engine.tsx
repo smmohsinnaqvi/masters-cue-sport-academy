@@ -440,13 +440,14 @@ function Timeline({
               SEGMENT_TONE[segment.kind],
               segment.kind === "FREE" && "cursor-pointer hover:brightness-125",
             )}
-            style={{ left: `${pct(segment.start)}%`, width: `${pct(segment.end) - pct(segment.start)}%` }}
+            style={{
+              left: `${pct(segment.start)}%`,
+              width: `${pct(segment.end) - pct(segment.start)}%`,
+            }}
           />
         ))}
 
-        {requestedStart !== null &&
-        requestedStart >= OPEN_START &&
-        requestedStart <= OPEN_END ? (
+        {requestedStart !== null && requestedStart >= OPEN_START && requestedStart <= OPEN_END ? (
           <div
             className="pointer-events-none absolute inset-y-0 rounded-sm border-2 border-neon bg-neon/20"
             style={{

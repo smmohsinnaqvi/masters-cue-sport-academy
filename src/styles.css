@@ -119,7 +119,8 @@
   --warning: oklch(0.82 0.15 95.68);
   --buffer: oklch(0.83 0.13 88.56);
   --overlay: oklch(0.08 0.026 250.48 / 78%);
-  --gradient-hero: linear-gradient(
+  --gradient-hero:
+    linear-gradient(
       90deg,
       oklch(0.09 0.03 248.8 / 92%) 0%,
       oklch(0.11 0.032 249.5 / 78%) 42%,

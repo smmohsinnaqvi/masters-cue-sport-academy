@@ -19,5 +19,13 @@
     }
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
-  "exclude": ["node_modules"]
+  "exclude": [
+    "node_modules",
+    "src/routes/**",
+    "src/router.tsx",
+    "src/start.ts",
+    "src/server.ts",
+    "src/routeTree.gen.ts",
+    "vite.config.ts"
+  ]
 }

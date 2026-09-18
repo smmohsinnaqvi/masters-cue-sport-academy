@@ -83,7 +83,9 @@ export function SiteHeader() {
               onClick={() => setOpen(false)}
               className={cn(
                 "flex min-h-12 items-center rounded-md px-3 text-sm font-medium",
-                isActive ? "text-felt" : "text-muted-foreground hover:bg-surface hover:text-foreground",
+                isActive
+                  ? "text-felt"
+                  : "text-muted-foreground hover:bg-surface hover:text-foreground",
               )}
             >
               {item.label}
