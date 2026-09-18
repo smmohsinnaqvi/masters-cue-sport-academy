@@ -2,13 +2,13 @@ import Link from "next/link";
 import { Coffee, MapPin, Phone, Clock3, Trophy, ShieldCheck } from "lucide-react";
 
 import heroImage from "@/assets/snooker-academy-hero.jpg";
-import { SiteHeader } from "@/components/site-header";
+import { SiteHeader } from "@/components/layout/site-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ACADEMY, AMBIENCE, FACILITIES, HOUSE_RULES } from "@/lib/academy";
+import { ACADEMY, AMBIENCE, FACILITIES, HOUSE_RULES } from "@/data/academy";
 import { formatPrice } from "@/lib/booking";
-import { CAFE_MENU, MOCK_TABLES, MOCK_TOURNAMENTS } from "@/lib/mockData";
+import { CAFE_MENU, MOCK_TABLES, MOCK_TOURNAMENTS } from "@/data/mock-data";
 
 export default function HomePage() {
   const snooker = MOCK_TABLES.filter((t) => t.type === "SNOOKER").length;

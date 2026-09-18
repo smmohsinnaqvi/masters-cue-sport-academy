@@ -1,6 +1,6 @@
-import { SiteHeader } from "@/components/site-header";
-import { BookingEngine } from "@/components/booking-engine";
-import { ACADEMY } from "@/lib/academy";
+import { SiteHeader } from "@/components/layout/site-header";
+import { BookingEngine } from "@/components/booking/booking-engine";
+import { ACADEMY } from "@/data/academy";
 
 export default function BookingPage() {
   return (

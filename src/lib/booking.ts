@@ -1,4 +1,4 @@
-import { MOCK_BOOKINGS, MOCK_TABLES, type BookingRecord, type Table } from "@/lib/mockData";
+import { MOCK_BOOKINGS, MOCK_TABLES, type BookingRecord, type Table } from "@/data/mock-data";
 
 export const OPEN_START = 10 * 60; // 10:00
 export const OPEN_END = 23 * 60; // 23:00

@@ -1,0 +1,167 @@
+@import "tailwindcss";
+@source "../src";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * Design system definition.
+ *
+ * The @theme inline block maps CSS custom properties to Tailwind utility
+ * classes (e.g. --color-primary -> bg-primary, text-primary).
+ *
+ * The :root and .dark blocks define the actual color values using oklch.
+ * All colors MUST use oklch format.
+ *
+ * To add a new semantic color:
+ * 1. Add the variable to :root (light value) and .dark (dark value)
+ * 2. Register it in @theme inline as --color-<name>: var(--<name>)
+ */
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 8px);
+  --radius-3xl: calc(var(--radius) + 12px);
+  --radius-4xl: calc(var(--radius) + 16px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-ring-offset-background: var(--background);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-surface: var(--surface);
+  --color-surface-strong: var(--surface-strong);
+  --color-surface-subtle: var(--surface-subtle);
+  --color-felt: var(--felt);
+  --color-felt-foreground: var(--felt-foreground);
+  --color-gold: var(--gold);
+  --color-neon: var(--neon);
+  --color-warning: var(--warning);
+  --color-buffer: var(--buffer);
+  --color-overlay: var(--overlay);
+  --font-sans: var(--font-sans);
+}
+
+:root {
+  color-scheme: dark;
+  --radius: 0.5rem;
+  --font-sans:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --background: oklch(0.145 0.032 251.32);
+  --foreground: oklch(0.958 0.008 173.64);
+  --card: oklch(0.19 0.032 248.58 / 92%);
+  --card-foreground: oklch(0.958 0.008 173.64);
+  --popover: oklch(0.176 0.034 249.5);
+  --popover-foreground: oklch(0.958 0.008 173.64);
+  --primary: oklch(0.74 0.181 151.42);
+  --primary-foreground: oklch(0.12 0.032 162.95);
+  --secondary: oklch(0.242 0.036 246.37);
+  --secondary-foreground: oklch(0.94 0.012 171.92);
+  --muted: oklch(0.254 0.031 247.15);
+  --muted-foreground: oklch(0.704 0.029 230.31);
+  --accent: oklch(0.78 0.131 82.12);
+  --accent-foreground: oklch(0.158 0.029 71.18);
+  --destructive: oklch(0.626 0.214 25.44);
+  --destructive-foreground: oklch(0.975 0.012 24.71);
+  --border: oklch(0.39 0.036 242.7 / 58%);
+  --input: oklch(0.36 0.038 241.9 / 68%);
+  --ring: oklch(0.74 0.181 151.42);
+  --chart-1: oklch(0.74 0.181 151.42);
+  --chart-2: oklch(0.78 0.131 82.12);
+  --chart-3: oklch(0.59 0.154 216.37);
+  --chart-4: oklch(0.82 0.15 95.68);
+  --chart-5: oklch(0.626 0.214 25.44);
+  --sidebar: oklch(0.17 0.034 250.31);
+  --sidebar-foreground: oklch(0.958 0.008 173.64);
+  --sidebar-primary: oklch(0.74 0.181 151.42);
+  --sidebar-primary-foreground: oklch(0.12 0.032 162.95);
+  --sidebar-accent: oklch(0.242 0.036 246.37);
+  --sidebar-accent-foreground: oklch(0.94 0.012 171.92);
+  --sidebar-border: oklch(0.39 0.036 242.7 / 58%);
+  --sidebar-ring: oklch(0.74 0.181 151.42);
+  --surface: oklch(0.205 0.035 247.98 / 82%);
+  --surface-strong: oklch(0.25 0.041 246.15 / 92%);
+  --surface-subtle: oklch(0.18 0.033 249.22 / 64%);
+  --felt: oklch(0.58 0.151 150.72);
+  --felt-foreground: oklch(0.956 0.012 156.62);
+  --gold: oklch(0.78 0.131 82.12);
+  --neon: oklch(0.82 0.21 151.8);
+  --warning: oklch(0.82 0.15 95.68);
+  --buffer: oklch(0.83 0.13 88.56);
+  --overlay: oklch(0.08 0.026 250.48 / 78%);
+  --gradient-hero:
+    linear-gradient(
+      90deg,
+      oklch(0.09 0.03 248.8 / 92%) 0%,
+      oklch(0.11 0.032 249.5 / 78%) 42%,
+      oklch(0.11 0.032 249.5 / 24%) 100%
+    ),
+    linear-gradient(0deg, oklch(0.145 0.032 251.32) 0%, oklch(0.145 0.032 251.32 / 0%) 38%);
+  --gradient-panel: linear-gradient(
+    145deg,
+    oklch(0.22 0.04 247.8 / 92%),
+    oklch(0.16 0.032 250.2 / 94%)
+  );
+  --shadow-felt: 0 0 34px oklch(0.74 0.181 151.42 / 26%);
+  --shadow-gold: 0 18px 60px oklch(0.78 0.131 82.12 / 14%);
+}
+
+.dark {
+  color-scheme: dark;
+}
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+
+  body {
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    font-family: var(--font-sans);
+    letter-spacing: 0;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+}
+
+@utility no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}

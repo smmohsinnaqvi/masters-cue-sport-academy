@@ -1,13 +1,13 @@
 import Link from "next/link";
 import { Check } from "lucide-react";
 
-import { SiteHeader } from "@/components/site-header";
+import { SiteHeader } from "@/components/layout/site-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ACADEMY, FACILITIES } from "@/lib/academy";
+import { ACADEMY, FACILITIES } from "@/data/academy";
 import { formatPrice } from "@/lib/booking";
-import { CAFE_MENU, MOCK_COACHING, MOCK_TABLES } from "@/lib/mockData";
+import { CAFE_MENU, MOCK_COACHING, MOCK_TABLES } from "@/data/mock-data";
 
 export default function ServicesPage() {
   return (

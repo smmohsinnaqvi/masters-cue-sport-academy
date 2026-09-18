@@ -3,15 +3,15 @@
 import { BadgeCheck, CalendarX2, CircleAlert } from "lucide-react";
 import { useMemo, useState } from "react";
 
-import { SiteHeader } from "@/components/site-header";
+import { SiteHeader } from "@/components/layout/site-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ACADEMY } from "@/lib/academy";
+import { ACADEMY } from "@/data/academy";
 import { DURATIONS, buildDateOptions, formatTime } from "@/lib/booking";
-import { MOCK_BOOKINGS, MOCK_TABLES, type BookingRecord } from "@/lib/mockData";
+import { MOCK_BOOKINGS, MOCK_TABLES, type BookingRecord } from "@/data/mock-data";
 
 const STATUS_STYLE: Record<BookingRecord["status"], string> = {
   CONFIRMED: "border-felt/45 text-felt",
