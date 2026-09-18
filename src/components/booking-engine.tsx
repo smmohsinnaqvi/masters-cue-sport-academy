@@ -1,4 +1,4 @@
-import { CheckCircle2, Clock3, ShieldCheck, Sparkles } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Clock3, ShieldCheck, Sparkles } from "lucide-react";
 import { useMemo, useState, type FormEvent } from "react";
 
 import { FloorMap } from "@/components/floor-map";
