@@ -2,13 +2,22 @@ import Link from "next/link";
 import { Coffee, MapPin, Phone, Clock3, Trophy, ShieldCheck } from "lucide-react";
 
 import heroImage from "@/assets/snooker-academy-hero.jpg";
+import { Section } from "@/components/home/section";
+import { Stat } from "@/components/home/stat";
 import { SiteHeader } from "@/components/layout/site-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ACADEMY, AMBIENCE, FACILITIES, HOUSE_RULES } from "@/data/academy";
+import {
+  ACADEMY,
+  AMBIENCE,
+  CAFE_MENU,
+  FACILITIES,
+  HOUSE_RULES,
+  MOCK_TABLES,
+  MOCK_TOURNAMENTS,
+} from "@/constants/site-content";
 import { formatPrice } from "@/lib/booking";
-import { CAFE_MENU, MOCK_TABLES, MOCK_TOURNAMENTS } from "@/data/mock-data";
 
 export default function HomePage() {
   const snooker = MOCK_TABLES.filter((t) => t.type === "SNOOKER").length;
@@ -187,32 +196,5 @@ export default function HomePage() {
         </Card>
       </Section>
     </main>
-  );
-}
-
-function Stat({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-lg border border-border bg-surface/70 p-3 backdrop-blur">
-      <dt className="text-xs text-muted-foreground">{label}</dt>
-      <dd className="mt-1 text-sm font-semibold text-foreground">{value}</dd>
-    </div>
-  );
-}
-
-function Section({
-  title,
-  subtitle,
-  children,
-}: {
-  title: string;
-  subtitle: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <section className="mx-auto max-w-7xl px-4 pt-14 sm:px-6 lg:px-8">
-      <h2 className="text-2xl font-bold sm:text-3xl">{title}</h2>
-      <p className="mt-2 text-sm text-muted-foreground">{subtitle}</p>
-      <div className="mt-6">{children}</div>
-    </section>
   );
 }
