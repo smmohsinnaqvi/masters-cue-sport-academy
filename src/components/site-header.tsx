@@ -1,4 +1,7 @@
-import { Link } from "@tanstack/react-router";
+"use client";
+
+import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { Activity, Menu } from "lucide-react";
 import { useState } from "react";
 
@@ -15,11 +18,12 @@ const NAV = [
 
 export function SiteHeader() {
   const [open, setOpen] = useState(false);
+  const pathname = usePathname();
 
   return (
     <header className="sticky top-0 z-40 border-b border-border bg-background/85 backdrop-blur">
       <nav className="mx-auto flex max-w-7xl items-center justify-between gap-3 px-4 py-3 sm:px-6 lg:px-8">
-        <Link to="/" className="flex min-h-12 items-center gap-3 pr-2">
+        <Link href="/" className="flex min-h-12 items-center gap-3 pr-2">
           <span className="flex h-11 w-11 items-center justify-center rounded-md border border-felt/35 bg-felt/15 shadow-[var(--shadow-felt)]">
             <Activity className="h-5 w-5 text-felt" aria-hidden="true" />
           </span>
@@ -30,24 +34,31 @@ export function SiteHeader() {
         </Link>
 
         <div className="hidden items-center gap-1 md:flex">
-          {NAV.map((item) => (
-            <Link
-              key={item.to}
-              to={item.to}
-              activeOptions={{ exact: item.to === "/" }}
-              className="inline-flex min-h-12 items-center rounded-md px-4 text-sm font-medium text-muted-foreground transition-colors hover:bg-surface hover:text-foreground data-[status=active]:bg-felt/15 data-[status=active]:text-felt"
-            >
-              {item.label}
-            </Link>
-          ))}
+          {NAV.map((item) => {
+            const isActive = item.to === "/" ? pathname === "/" : pathname.startsWith(item.to);
+            return (
+              <Link
+                key={item.to}
+                href={item.to}
+                className={cn(
+                  "inline-flex min-h-12 items-center rounded-md px-4 text-sm font-medium transition-colors",
+                  isActive
+                    ? "bg-felt/15 text-felt"
+                    : "text-muted-foreground hover:bg-surface hover:text-foreground",
+                )}
+              >
+                {item.label}
+              </Link>
+            );
+          })}
           <Button asChild className="ml-2 min-h-12 shadow-[var(--shadow-felt)]">
-            <Link to="/booking">Book a table</Link>
+            <Link href="/booking">Book a table</Link>
           </Button>
         </div>
 
         <div className="flex items-center gap-2 md:hidden">
           <Button asChild className="min-h-12">
-            <Link to="/booking">Book</Link>
+            <Link href="/booking">Book</Link>
           </Button>
           <Button
             type="button"
@@ -63,17 +74,22 @@ export function SiteHeader() {
       </nav>
 
       <div className={cn("border-t border-border px-4 pb-3 md:hidden", open ? "block" : "hidden")}>
-        {NAV.map((item) => (
-          <Link
-            key={item.to}
-            to={item.to}
-            activeOptions={{ exact: item.to === "/" }}
-            onClick={() => setOpen(false)}
-            className="flex min-h-12 items-center rounded-md px-3 text-sm font-medium text-muted-foreground hover:bg-surface hover:text-foreground data-[status=active]:text-felt"
-          >
-            {item.label}
-          </Link>
-        ))}
+        {NAV.map((item) => {
+          const isActive = item.to === "/" ? pathname === "/" : pathname.startsWith(item.to);
+          return (
+            <Link
+              key={item.to}
+              href={item.to}
+              onClick={() => setOpen(false)}
+              className={cn(
+                "flex min-h-12 items-center rounded-md px-3 text-sm font-medium",
+                isActive ? "text-felt" : "text-muted-foreground hover:bg-surface hover:text-foreground",
+              )}
+            >
+              {item.label}
+            </Link>
+          );
+        })}
       </div>
     </header>
   );

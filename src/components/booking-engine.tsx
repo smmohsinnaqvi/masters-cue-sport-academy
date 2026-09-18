@@ -1,3 +1,5 @@
+"use client";
+
 import { AlertTriangle, CheckCircle2, Clock3, ShieldCheck, Sparkles } from "lucide-react";
 import { useMemo, useState, type FormEvent } from "react";
 
