@@ -30,7 +30,7 @@ function BookingPage() {
       <h1 className="text-3xl font-bold sm:text-4xl">Book a table</h1>
       <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground">
         Like picking a seat on a bus — choose your date and session length, tap a table on the floor
-        plan, then pick a suggested start time.
+        plan, then set any start time you want. The timeline shows what's already booked.
       </p>
       <div className="mt-8">
         <BookingEngine />
