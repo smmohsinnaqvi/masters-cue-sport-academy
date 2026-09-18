@@ -17,14 +17,22 @@ import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import {
   DURATIONS,
+  OPEN_END,
+  OPEN_START,
   buildDateOptions,
+  conflictFor,
+  daySegments,
   formatPrice,
   formatTime,
   freeStarts,
+  fromTimeInput,
   isRangeFree,
+  nextFreeStart,
   sessionPrice,
   suggestAlternatives,
   tableAvailability,
+  toTimeInput,
+  type DaySegment,
   type TableAvailability,
 } from "@/lib/booking";
 import { MOCK_TABLES, type Table } from "@/lib/mockData";
