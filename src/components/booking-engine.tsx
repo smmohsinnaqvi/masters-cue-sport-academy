@@ -400,6 +400,85 @@ export function BookingEngine() {
   );
 }
 
+const SEGMENT_TONE: Record<DaySegment["kind"], string> = {
+  FREE: "bg-felt/30",
+  BOOKED: "bg-destructive/60",
+  HELD: "bg-warning/60",
+  BUFFER: "bg-muted",
+};
+
+function Timeline({
+  segments,
+  requestedStart,
+  duration,
+  onPick,
+}: {
+  segments: DaySegment[];
+  requestedStart: number | null;
+  duration: number;
+  onPick: (minutes: number) => void;
+}) {
+  const span = OPEN_END - OPEN_START;
+  const pct = (minutes: number) => ((minutes - OPEN_START) / span) * 100;
+  const hours = Array.from({ length: Math.floor(span / 60) + 1 }, (_, i) => OPEN_START + i * 60);
+
+  return (
+    <div className="rounded-lg border border-border bg-surface p-3">
+      <div className="relative h-12 w-full overflow-hidden rounded-md bg-surface-subtle">
+        {segments.map((segment) => (
+          <button
+            key={`${segment.kind}-${segment.start}`}
+            type="button"
+            disabled={segment.kind !== "FREE"}
+            onClick={() => onPick(segment.start)}
+            aria-label={`${formatTime(segment.start)} to ${formatTime(segment.end)} ${segment.label ?? "free"}`}
+            className={cn(
+              "absolute inset-y-0 border-r border-background/60",
+              SEGMENT_TONE[segment.kind],
+              segment.kind === "FREE" && "cursor-pointer hover:brightness-125",
+            )}
+            style={{ left: `${pct(segment.start)}%`, width: `${pct(segment.end) - pct(segment.start)}%` }}
+          />
+        ))}
+
+        {requestedStart !== null &&
+        requestedStart >= OPEN_START &&
+        requestedStart <= OPEN_END ? (
+          <div
+            className="pointer-events-none absolute inset-y-0 rounded-sm border-2 border-neon bg-neon/20"
+            style={{
+              left: `${pct(requestedStart)}%`,
+              width: `${Math.max(1, pct(Math.min(requestedStart + duration, OPEN_END)) - pct(requestedStart))}%`,
+            }}
+          />
+        ) : null}
+      </div>
+
+      <div className="mt-1 flex justify-between text-[10px] text-muted-foreground">
+        {hours.map((hour) => (
+          <span key={hour}>{(Math.floor(hour / 60) % 12 || 12).toString()}</span>
+        ))}
+      </div>
+
+      <div className="mt-3 flex flex-wrap gap-3 text-xs text-muted-foreground">
+        <LegendSwatch className="bg-felt/60" label="Free — tap to pick" />
+        <LegendSwatch className="bg-destructive/60" label="Booked" />
+        <LegendSwatch className="bg-warning/60" label="On hold" />
+        <LegendSwatch className="bg-muted" label="10-min buffer" />
+      </div>
+    </div>
+  );
+}
+
+function LegendSwatch({ className, label }: { className: string; label: string }) {
+  return (
+    <span className="inline-flex items-center gap-2">
+      <span className={cn("h-2.5 w-4 rounded-sm", className)} />
+      {label}
+    </span>
+  );
+}
+
 function Step({
   number,
   title,
