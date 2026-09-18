@@ -44,6 +44,7 @@ export function BookingEngine() {
   const [duration, setDuration] = useState(60);
   const [tableId, setTableId] = useState("snk-1");
   const [start, setStart] = useState<number | null>(null);
+  const [timeInput, setTimeInput] = useState("18:00");
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [confirmed, setConfirmed] = useState(false);
@@ -60,14 +61,36 @@ export function BookingEngine() {
     return map;
   }, [dateOffset, duration]);
 
-  const suggestions = useMemo(
-    () => freeStarts(table.id, dateOffset, duration),
+  const segments = useMemo(() => daySegments(table.id, dateOffset), [table.id, dateOffset]);
+
+  const requested = fromTimeInput(timeInput);
+  const withinHours =
+    requested !== null && requested >= OPEN_START && requested + duration <= OPEN_END;
+  const clash =
+    requested !== null && withinHours
+      ? conflictFor(table.id, dateOffset, requested, duration)
+      : null;
+  const requestedIsFree = requested !== null && withinHours && !clash;
+
+  const nextFree = useMemo(
+    () =>
+      requested === null
+        ? null
+        : nextFreeStart(table.id, dateOffset, duration, Math.max(requested, OPEN_START)),
+    [requested, table.id, dateOffset, duration],
+  );
+
+  const quickStarts = useMemo(
+    () => freeStarts(table.id, dateOffset, duration).slice(0, 8),
     [table.id, dateOffset, duration],
   );
 
   const alternatives = useMemo(
-    () => (suggestions.length === 0 ? suggestAlternatives(table.id, dateOffset, duration, 18 * 60) : []),
-    [suggestions.length, table.id, dateOffset, duration],
+    () =>
+      requested !== null && !requestedIsFree
+        ? suggestAlternatives(table.id, dateOffset, duration, requested)
+        : [],
+    [requested, requestedIsFree, table.id, dateOffset, duration],
   );
 
   function pickTable(next: Table) {
