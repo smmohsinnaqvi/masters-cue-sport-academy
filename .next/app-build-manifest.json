@@ -16,10 +16,10 @@
       "static/chunks/main-app.js",
       "static/chunks/app/login/page.js"
     ],
-    "/booking/page": [
+    "/supervisor/page": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
-      "static/chunks/app/booking/page.js"
+      "static/chunks/app/supervisor/page.js"
     ]
   }
 }

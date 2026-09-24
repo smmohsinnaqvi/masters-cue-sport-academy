@@ -18,10 +18,12 @@ export function FloorMap({
   selectedTableId,
   availability,
   onSelect,
+  tables = MOCK_TABLES,
 }: {
   selectedTableId: string;
   availability: Record<string, TableAvailability>;
   onSelect: (table: Table) => void;
+  tables?: Table[];
 }) {
   return (
     <div className="rounded-lg border border-border bg-surface-subtle p-3">
@@ -67,7 +69,7 @@ export function FloorMap({
           </g>
         ))}
 
-        {MOCK_TABLES.map((table) => {
+        {tables.map((table) => {
           const status = availability[table.id] ?? "FREE";
           const isSelected = table.id === selectedTableId;
           const { x, y, w, h } = table.position;

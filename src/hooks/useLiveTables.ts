@@ -2,11 +2,12 @@
 
 import { useEffect, useState } from "react";
 
+import { MOCK_TABLES } from "@/data/mock-data";
+import { normalizeTable, type CompatibleTable } from "@/lib/real-data";
 import { supabase } from "@/lib/supabase";
-import type { Table } from "@/types/database";
 
 export function useLiveTables() {
-  const [tables, setTables] = useState<Table[]>([]);
+  const [tables, setTables] = useState<CompatibleTable[]>(MOCK_TABLES);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -21,12 +22,15 @@ export function useLiveTables() {
           throw loadError;
         }
 
+        const nextTables = (data ?? []).map((row) => normalizeTable(row as never));
+
         if (isMounted) {
-          setTables((data ?? []) as Table[]);
+          setTables(nextTables.length > 0 ? nextTables : MOCK_TABLES);
         }
       } catch (loadError) {
         if (isMounted) {
           setError(loadError instanceof Error ? loadError.message : "Unable to load table data");
+          setTables(MOCK_TABLES);
         }
       } finally {
         if (isMounted) {
@@ -40,22 +44,24 @@ export function useLiveTables() {
     const channel = supabase.channel("realtime-tables");
 
     channel.on("postgres_changes", { event: "*", schema: "public", table: "tables" }, (payload) => {
-      const row = payload.new as Table | null;
-      const previousRow = payload.old as Table | null;
+      const row = payload.new as Record<string, unknown> | null;
+      const previousRow = payload.old as Record<string, unknown> | null;
 
       setTables((current) => {
         if (payload.eventType === "INSERT" && row) {
-          return [...current, row].sort((a, b) => a.name.localeCompare(b.name));
+          const normalized = normalizeTable(row as never);
+          return [...current, normalized].sort((a, b) => a.name.localeCompare(b.name));
         }
 
         if (payload.eventType === "UPDATE" && row) {
+          const normalized = normalizeTable(row as never);
           return current
-            .map((table) => (table.id === row.id ? { ...table, ...row } : table))
+            .map((table) => (table.id === normalized.id ? normalized : table))
             .sort((a, b) => a.name.localeCompare(b.name));
         }
 
         if (payload.eventType === "DELETE" && previousRow) {
-          return current.filter((table) => table.id !== previousRow.id);
+          return current.filter((table) => table.id !== String(previousRow.id));
         }
 
         return current;

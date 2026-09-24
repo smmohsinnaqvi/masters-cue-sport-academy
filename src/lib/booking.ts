@@ -63,7 +63,8 @@ export function buildDateOptions(count = 7): DateOption[] {
 }
 
 export function bookingsFor(tableId: string, dateOffset: number, extra: BookingRecord[] = []) {
-  return [...MOCK_BOOKINGS, ...extra].filter(
+  const source = extra.length > 0 ? extra : MOCK_BOOKINGS;
+  return source.filter(
     (b) => b.tableId === tableId && b.dateOffset === dateOffset && b.status !== "CANCELLED",
   );
 }

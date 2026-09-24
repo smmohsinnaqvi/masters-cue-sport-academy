@@ -43,11 +43,15 @@ import {
   type DaySegment,
 } from "@/lib/booking";
 import { appendBookingQueue } from "@/lib/booking-store";
-import { MOCK_TABLES, type Table } from "@/data/mock-data";
+import { MOCK_BOOKINGS, MOCK_TABLES, type BookingRecord, type Table } from "@/data/mock-data";
+import { useLiveBookings } from "@/hooks/useLiveBookings";
+import { useLiveTables } from "@/hooks/useLiveTables";
 import { cn } from "@/lib/utils";
 
 export function BookingEngine() {
   const dateOptions = useMemo(() => buildDateOptions(7), []);
+  const { tables: liveTables } = useLiveTables();
+  const { bookings: liveBookings } = useLiveBookings();
   const [dateOffset, setDateOffset] = useState(0);
   const [duration, setDuration] = useState(120);
   const [tableType, setTableType] = useState<"ANY" | "SNOOKER" | "POOL">("ANY");
@@ -58,41 +62,58 @@ export function BookingEngine() {
   const [confirmed, setConfirmed] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
 
-  const table = MOCK_TABLES.find((t) => t.id === tableId) ?? MOCK_TABLES[0]!;
+  const tables = useMemo(() => (liveTables.length > 0 ? liveTables : MOCK_TABLES), [liveTables]);
+  const bookings = useMemo(
+    () => (liveBookings.length > 0 ? liveBookings : MOCK_BOOKINGS),
+    [liveBookings],
+  );
+
+  const table = tables.find((t) => t.id === tableId) ?? tables[0]!;
   const selectedDate = dateOptions.find((d) => d.offset === dateOffset) ?? dateOptions[0]!;
 
-  const tables = useMemo(
-    () => MOCK_TABLES.filter((tableItem) => tableType === "ANY" || tableItem.type === tableType),
-    [tableType],
+  const filteredTables = useMemo(
+    () => tables.filter((tableItem) => tableType === "ANY" || tableItem.type === tableType),
+    [tableType, tables],
   );
 
   const requested = fromTimeInput(timeInput) ?? OPEN_START;
   const withinHours = requested >= OPEN_START && requested + duration <= OPEN_END;
-  const clash = withinHours ? conflictFor(table.id, dateOffset, requested, duration) : null;
+  const clash = withinHours
+    ? conflictFor(table.id, dateOffset, requested, duration, bookings)
+    : null;
   const requestedIsFree = withinHours && !clash;
 
   const mapAvailability = useMemo(
     () =>
       Object.fromEntries(
-        MOCK_TABLES.map((tableItem) => [
+        tables.map((tableItem) => [
           tableItem.id,
-          tableAvailability(tableItem.id, dateOffset, duration),
+          tableAvailability(tableItem.id, dateOffset, duration, bookings),
         ]),
       ),
-    [dateOffset, duration],
+    [dateOffset, duration, bookings, tables],
   );
 
   const quickStarts = useMemo(
-    () => freeStarts(table.id, dateOffset, duration).slice(0, 6),
-    [table.id, dateOffset, duration],
+    () => freeStarts(table.id, dateOffset, duration, bookings).slice(0, 6),
+    [table.id, dateOffset, duration, bookings],
   );
 
-  const timelineSegments = useMemo(() => daySegments(table.id, dateOffset), [dateOffset, table.id]);
+  const timelineSegments = useMemo(
+    () => daySegments(table.id, dateOffset, bookings),
+    [dateOffset, table.id, bookings],
+  );
 
   const alternativeTables = useMemo(() => {
-    const sameTableOptions = tables
+    const sameTableOptions = filteredTables
       .map((tableItem) => {
-        const availableStart = nextFreeStart(tableItem.id, dateOffset, duration, requested);
+        const availableStart = nextFreeStart(
+          tableItem.id,
+          dateOffset,
+          duration,
+          requested,
+          bookings,
+        );
         if (availableStart === null) return null;
         return { table: tableItem, start: availableStart };
       })
@@ -101,11 +122,11 @@ export function BookingEngine() {
       .slice(0, 3);
 
     return sameTableOptions;
-  }, [tables, dateOffset, duration, requested]);
+  }, [filteredTables, dateOffset, duration, requested, bookings]);
 
   const endTime = toTimeInput(Math.min(requested + duration, OPEN_END));
   const price = sessionPrice(table, duration);
-  const canBook = isRangeFree(table.id, dateOffset, requested, duration);
+  const canBook = isRangeFree(table.id, dateOffset, requested, duration, bookings);
 
   function handleTableSelect(nextTable: Table) {
     setTableId(nextTable.id);
@@ -140,8 +161,8 @@ export function BookingEngine() {
   }
 
   const recommendedStart = useMemo(
-    () => nextFreeStart(table.id, dateOffset, duration, requested) ?? requested,
-    [dateOffset, duration, requested, table.id],
+    () => nextFreeStart(table.id, dateOffset, duration, requested, bookings) ?? requested,
+    [dateOffset, duration, requested, table.id, bookings],
   );
 
   return (
@@ -217,9 +238,8 @@ export function BookingEngine() {
                   onClick={() => {
                     setTableType(type);
                     const nextTable =
-                      (type === "ANY"
-                        ? MOCK_TABLES[0]
-                        : MOCK_TABLES.find((item) => item.type === type)) ?? MOCK_TABLES[0];
+                      (type === "ANY" ? tables[0] : tables.find((item) => item.type === type)) ??
+                      tables[0];
                     setTableId(nextTable.id);
                   }}
                   className={cn(
@@ -237,7 +257,7 @@ export function BookingEngine() {
             <div className="flex items-center justify-between gap-3">
               <p className="text-sm font-medium text-muted-foreground">4. Pick a table</p>
               <span className="rounded-full border border-border bg-surface px-2 py-1 text-xs text-muted-foreground">
-                {tables.length} available
+                {filteredTables.length} available
               </span>
             </div>
 
@@ -246,12 +266,18 @@ export function BookingEngine() {
                 selectedTableId={table.id}
                 availability={mapAvailability}
                 onSelect={handleTableSelect}
+                tables={filteredTables}
               />
             </div>
 
             <div className="grid gap-3 sm:grid-cols-2">
-              {tables.map((tableOption) => {
-                const freeStartsCount = freeStarts(tableOption.id, dateOffset, duration).length;
+              {filteredTables.map((tableOption) => {
+                const freeStartsCount = freeStarts(
+                  tableOption.id,
+                  dateOffset,
+                  duration,
+                  bookings,
+                ).length;
                 const selected = tableOption.id === table.id;
                 const price = sessionPrice(tableOption, duration);
 

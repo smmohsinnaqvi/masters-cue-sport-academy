@@ -1,0 +1,109 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum TableType {
+  SNOOKER
+  POOL
+}
+
+enum TableZone {
+  MAIN_ARENA
+  LOUNGE
+}
+
+enum TableStatus {
+  AVAILABLE
+  OCCUPIED
+  RESERVED
+}
+
+enum BookingStatus {
+  HELD
+  CONFIRMED
+  CANCELLED
+}
+
+enum ActiveSessionStatus {
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum GameType {
+  CASUAL
+  MATCH
+  PRACTICE
+}
+
+enum PaymentMethod {
+  CASH
+  UPI
+  CARD
+}
+
+model Table {
+  id               String          @id @default(cuid())
+  name             String
+  shortName        String          @map("short_name")
+  type             TableType
+  size             String
+  brand            String?
+  hourlyRate       Int             @map("hourly_rate")
+  clothType        String?         @map("cloth_type")
+  isActive         Boolean         @default(true) @map("is_active")
+  zone             TableZone       @default(MAIN_ARENA)
+  currentStatus    TableStatus     @default(AVAILABLE) @map("current_status")
+  sessionStartedAt DateTime?       @map("session_started_at")
+  position         Json?
+  createdAt        DateTime        @default(now()) @map("created_at")
+
+  bookings       Booking[]
+  activeSessions ActiveSession[]
+
+  @@map("tables")
+}
+
+model Booking {
+  id            String        @id @default(cuid())
+  tableId       String        @map("table_id")
+  table         Table         @relation(fields: [tableId], references: [id], onDelete: Cascade)
+  customerName  String        @map("customer_name")
+  customerPhone String        @map("customer_phone")
+  slotStart     DateTime      @map("slot_start")
+  slotEnd       DateTime      @map("slot_end")
+  status        BookingStatus @default(HELD)
+  reference     String?
+  verified      Boolean       @default(false)
+  note          String?
+  lockedUntil   DateTime?     @map("locked_until")
+  createdAt     DateTime      @default(now()) @map("created_at")
+
+  @@map("bookings")
+}
+
+model ActiveSession {
+  id             String             @id @default(cuid())
+  tableId        String             @map("table_id")
+  table          Table              @relation(fields: [tableId], references: [id], onDelete: Cascade)
+  customerName   String             @map("customer_name")
+  playerTwoName  String?            @map("player_two_name")
+  winnerName     String?            @map("winner_name")
+  startedAt      DateTime           @map("started_at")
+  endedAt        DateTime?          @map("ended_at")
+  hourlyRate     Int                @map("hourly_rate")
+  totalMinutes   Int?               @map("total_minutes")
+  finalAmount    Int?               @map("final_amount")
+  status         ActiveSessionStatus @default(IN_PROGRESS)
+  gameType       GameType?          @map("game_type")
+  paymentMethod  PaymentMethod?     @map("payment_method")
+  createdAt      DateTime           @default(now()) @map("created_at")
+
+  @@map("active_sessions")
+}
