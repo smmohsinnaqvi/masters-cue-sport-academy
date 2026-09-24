@@ -1,6 +1,13 @@
 "use client";
 
-import { AlertTriangle, CheckCircle2, Clock3, ShieldCheck, Sparkles } from "lucide-react";
+import {
+  AlertTriangle,
+  ArrowRight,
+  CalendarClock,
+  CheckCircle2,
+  Clock3,
+  Sparkles,
+} from "lucide-react";
 import { useMemo, useState, type FormEvent } from "react";
 
 import { FloorMap } from "@/components/booking/floor-map";
@@ -31,21 +38,20 @@ import {
   isRangeFree,
   nextFreeStart,
   sessionPrice,
-  suggestAlternatives,
   tableAvailability,
   toTimeInput,
   type DaySegment,
-  type TableAvailability,
 } from "@/lib/booking";
+import { appendBookingQueue } from "@/lib/booking-store";
 import { MOCK_TABLES, type Table } from "@/data/mock-data";
 import { cn } from "@/lib/utils";
 
 export function BookingEngine() {
   const dateOptions = useMemo(() => buildDateOptions(7), []);
   const [dateOffset, setDateOffset] = useState(0);
-  const [duration, setDuration] = useState(60);
+  const [duration, setDuration] = useState(120);
+  const [tableType, setTableType] = useState<"ANY" | "SNOOKER" | "POOL">("ANY");
   const [tableId, setTableId] = useState("snk-1");
-  const [start, setStart] = useState<number | null>(null);
   const [timeInput, setTimeInput] = useState("18:00");
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
@@ -55,53 +61,59 @@ export function BookingEngine() {
   const table = MOCK_TABLES.find((t) => t.id === tableId) ?? MOCK_TABLES[0]!;
   const selectedDate = dateOptions.find((d) => d.offset === dateOffset) ?? dateOptions[0]!;
 
-  const availability = useMemo(() => {
-    const map: Record<string, TableAvailability> = {};
-    for (const t of MOCK_TABLES) {
-      map[t.id] = tableAvailability(t.id, dateOffset, duration);
-    }
-    return map;
-  }, [dateOffset, duration]);
+  const tables = useMemo(
+    () => MOCK_TABLES.filter((tableItem) => tableType === "ANY" || tableItem.type === tableType),
+    [tableType],
+  );
 
-  const segments = useMemo(() => daySegments(table.id, dateOffset), [table.id, dateOffset]);
+  const requested = fromTimeInput(timeInput) ?? OPEN_START;
+  const withinHours = requested >= OPEN_START && requested + duration <= OPEN_END;
+  const clash = withinHours ? conflictFor(table.id, dateOffset, requested, duration) : null;
+  const requestedIsFree = withinHours && !clash;
 
-  const requested = fromTimeInput(timeInput);
-  const withinHours =
-    requested !== null && requested >= OPEN_START && requested + duration <= OPEN_END;
-  const clash =
-    requested !== null && withinHours
-      ? conflictFor(table.id, dateOffset, requested, duration)
-      : null;
-  const requestedIsFree = requested !== null && withinHours && !clash;
-
-  const nextFree = useMemo(
+  const mapAvailability = useMemo(
     () =>
-      requested === null
-        ? null
-        : nextFreeStart(table.id, dateOffset, duration, Math.max(requested, OPEN_START)),
-    [requested, table.id, dateOffset, duration],
+      Object.fromEntries(
+        MOCK_TABLES.map((tableItem) => [
+          tableItem.id,
+          tableAvailability(tableItem.id, dateOffset, duration),
+        ]),
+      ),
+    [dateOffset, duration],
   );
 
   const quickStarts = useMemo(
-    () => freeStarts(table.id, dateOffset, duration).slice(0, 8),
+    () => freeStarts(table.id, dateOffset, duration).slice(0, 6),
     [table.id, dateOffset, duration],
   );
 
-  const alternatives = useMemo(
-    () =>
-      requested !== null && !requestedIsFree
-        ? suggestAlternatives(table.id, dateOffset, duration, requested)
-        : [],
-    [requested, requestedIsFree, table.id, dateOffset, duration],
-  );
+  const timelineSegments = useMemo(() => daySegments(table.id, dateOffset), [dateOffset, table.id]);
 
-  function pickTable(next: Table) {
-    setTableId(next.id);
-    setStart(null);
+  const alternativeTables = useMemo(() => {
+    const sameTableOptions = tables
+      .map((tableItem) => {
+        const availableStart = nextFreeStart(tableItem.id, dateOffset, duration, requested);
+        if (availableStart === null) return null;
+        return { table: tableItem, start: availableStart };
+      })
+      .filter((option): option is { table: Table; start: number } => option !== null)
+      .sort((a, b) => a.start - b.start)
+      .slice(0, 3);
+
+    return sameTableOptions;
+  }, [tables, dateOffset, duration, requested]);
+
+  const endTime = toTimeInput(Math.min(requested + duration, OPEN_END));
+  const price = sessionPrice(table, duration);
+  const canBook = isRangeFree(table.id, dateOffset, requested, duration);
+
+  function handleTableSelect(nextTable: Table) {
+    setTableId(nextTable.id);
+    setConfirmed(false);
   }
 
-  function pickStart(value: number) {
-    setStart(value);
+  function openHoldDrawer() {
+    if (!canBook) return;
     setConfirmed(false);
     setName("");
     setPhone("");
@@ -110,75 +122,81 @@ export function BookingEngine() {
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+
+    appendBookingQueue({
+      id: `booking-${Date.now()}`,
+      customer: name.trim() || "Walk-in Guest",
+      tableId: table.id,
+      tableName: table.shortName,
+      date: selectedDate.day,
+      start: formatTime(requested),
+      duration,
+      amount: price,
+      status: "pending",
+      source: "online",
+    });
+
     setConfirmed(true);
   }
 
-  const price = sessionPrice(table, duration);
-  const canBook = start !== null && isRangeFree(table.id, dateOffset, start, duration);
+  const recommendedStart = useMemo(
+    () => nextFreeStart(table.id, dateOffset, duration, requested) ?? requested,
+    [dateOffset, duration, requested, table.id],
+  );
 
   return (
     <>
-      <Card className="border-border bg-[image:var(--gradient-panel)] shadow-[var(--shadow-felt)] backdrop-blur">
-        <CardHeader className="gap-3 p-4 sm:p-6">
+      <Card className="overflow-hidden border-border bg-[image:var(--gradient-panel)] shadow-[var(--shadow-felt)]">
+        <CardHeader className="p-4 sm:p-6">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div>
-              <Badge variant="outline" className="mb-3 min-h-7 border-gold/35 text-gold">
-                Live floor
+              <Badge variant="outline" className="mb-3 min-h-7 border-felt/35 text-felt">
+                Book in 3 taps
               </Badge>
               <CardTitle className="text-2xl leading-tight sm:text-3xl">
-                Pick your table off the floor map
+                Reserve a table without the hassle
               </CardTitle>
-              <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
-                Choose a date and how long you want to play, tap a table on the plan, then type any
-                start time — 11:25 works. The timeline shows booked, held and free minutes, with a
-                10-minute cloth-brushing buffer after every session.
-              </p>
             </div>
-            <div className="flex min-h-12 items-center gap-2 rounded-md border border-felt/35 bg-felt/15 px-3 text-sm text-felt">
-              <ShieldCheck className="h-5 w-5" aria-hidden="true" />
-              No double bookings
+            <div className="inline-flex items-center gap-2 rounded-full border border-felt/35 bg-felt/10 px-3 py-2 text-xs font-medium text-felt">
+              <CalendarClock className="h-4 w-4" aria-hidden="true" />
+              Open hours 10:00 AM – 11:00 PM
             </div>
           </div>
         </CardHeader>
 
-        <CardContent className="space-y-7 p-4 pt-0 sm:p-6 sm:pt-0">
-          <Step number={1} title="Pick a date">
+        <CardContent className="space-y-6 p-4 pt-0 sm:p-6 sm:pt-0">
+          <div className="space-y-3">
+            <p className="text-sm font-medium text-muted-foreground">1. Choose a day</p>
             <div className="no-scrollbar flex gap-3 overflow-x-auto pb-1">
               {dateOptions.map((option) => (
                 <Button
                   key={option.id}
                   type="button"
                   variant="outline"
-                  onClick={() => {
-                    setDateOffset(option.offset);
-                    setStart(null);
-                  }}
+                  onClick={() => setDateOffset(option.offset)}
                   className={cn(
-                    "min-h-20 w-28 shrink-0 flex-col border-border bg-surface/70 px-3 hover:bg-surface-strong",
-                    option.offset === dateOffset &&
-                      "border-felt bg-felt/15 text-felt shadow-[var(--shadow-felt)]",
+                    "min-h-16 w-24 shrink-0 flex-col border-border bg-surface/70 px-2",
+                    option.offset === dateOffset && "border-felt bg-felt/15 text-felt",
                   )}
                 >
-                  <span className="text-sm font-semibold">{option.day}</span>
-                  <span className="text-base text-foreground">{option.date}</span>
+                  <span className="text-xs font-semibold">{option.day}</span>
+                  <span className="text-sm text-foreground">{option.date}</span>
                 </Button>
               ))}
             </div>
-          </Step>
+          </div>
 
-          <Step number={2} title="How long do you want to play?">
-            <div className="flex flex-wrap gap-3">
+          <div className="space-y-3">
+            <p className="text-sm font-medium text-muted-foreground">2. Pick your session</p>
+            <div className="flex flex-wrap gap-2">
               {DURATIONS.map((option) => (
                 <Button
                   key={option.minutes}
                   type="button"
                   variant="outline"
-                  onClick={() => {
-                    setDuration(option.minutes);
-                    setStart(null);
-                  }}
+                  onClick={() => setDuration(option.minutes)}
                   className={cn(
-                    "min-h-12 min-w-24 border-border bg-surface/70 hover:bg-surface-strong",
+                    "min-h-11 border-border bg-surface/70 px-4",
                     duration === option.minutes && "border-felt bg-felt/15 text-felt",
                   )}
                 >
@@ -186,131 +204,242 @@ export function BookingEngine() {
                 </Button>
               ))}
             </div>
-          </Step>
+          </div>
 
-          <Step number={3} title="Tap a table on the floor plan">
-            <FloorMap selectedTableId={table.id} availability={availability} onSelect={pickTable} />
-            <div className="mt-3 rounded-lg border border-border bg-surface p-4">
-              <p className="text-base font-semibold text-foreground">{table.name}</p>
-              <p className="mt-1 text-sm text-muted-foreground">
-                {table.size} {table.brand} · {table.clothType} · {formatPrice(table.hourlyRate)}/hr
-              </p>
-              <p className="mt-2 text-sm text-felt">
-                {formatPrice(price)} for this {DURATIONS.find((d) => d.minutes === duration)?.label}{" "}
-                session
-              </p>
+          <div className="space-y-3">
+            <p className="text-sm font-medium text-muted-foreground">3. Choose table type</p>
+            <div className="flex gap-2">
+              {(["ANY", "SNOOKER", "POOL"] as const).map((type) => (
+                <Button
+                  key={type}
+                  type="button"
+                  variant={tableType === type ? "default" : "outline"}
+                  onClick={() => {
+                    setTableType(type);
+                    const nextTable =
+                      (type === "ANY"
+                        ? MOCK_TABLES[0]
+                        : MOCK_TABLES.find((item) => item.type === type)) ?? MOCK_TABLES[0];
+                    setTableId(nextTable.id);
+                  }}
+                  className={cn(
+                    "min-h-11 px-4",
+                    tableType === type && "bg-primary text-primary-foreground",
+                  )}
+                >
+                  {type === "ANY" ? "Any table" : type === "SNOOKER" ? "Snooker" : "Pool"}
+                </Button>
+              ))}
             </div>
-          </Step>
+          </div>
 
-          <Step number={4} title="Today's live timeline for this table">
-            <Timeline
-              segments={segments}
-              requestedStart={requested}
-              duration={duration}
-              onPick={(value) => setTimeInput(toTimeInput(value))}
-            />
-          </Step>
-
-          <Step number={5} title="Pick any start time you like">
-            <div className="flex flex-wrap items-end gap-3">
-              <div className="space-y-2">
-                <Label htmlFor="start-time">Start time</Label>
-                <Input
-                  id="start-time"
-                  type="time"
-                  step={60}
-                  value={timeInput}
-                  onChange={(event) => setTimeInput(event.target.value)}
-                  className="min-h-12 w-40 text-base"
-                />
-              </div>
-              {requested !== null ? (
-                <div className="min-h-12 flex items-center rounded-md border border-border bg-surface px-3 text-sm text-muted-foreground">
-                  Ends {formatTime(Math.min(requested + duration, 24 * 60 - 1))} ·{" "}
-                  <span className="ml-1 text-felt">{formatPrice(price)}</span>
-                </div>
-              ) : null}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-sm font-medium text-muted-foreground">4. Pick a table</p>
+              <span className="rounded-full border border-border bg-surface px-2 py-1 text-xs text-muted-foreground">
+                {tables.length} available
+              </span>
             </div>
 
-            {quickStarts.length > 0 ? (
-              <div className="no-scrollbar mt-3 flex gap-2 overflow-x-auto pb-1">
-                {quickStarts.map((value) => (
-                  <Button
-                    key={value}
+            <div className="rounded-2xl border border-border bg-surface/70 p-3">
+              <FloorMap
+                selectedTableId={table.id}
+                availability={mapAvailability}
+                onSelect={handleTableSelect}
+              />
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              {tables.map((tableOption) => {
+                const freeStartsCount = freeStarts(tableOption.id, dateOffset, duration).length;
+                const selected = tableOption.id === table.id;
+                const price = sessionPrice(tableOption, duration);
+
+                return (
+                  <button
+                    key={tableOption.id}
                     type="button"
-                    variant="outline"
-                    onClick={() => setTimeInput(toTimeInput(value))}
+                    onClick={() => handleTableSelect(tableOption)}
                     className={cn(
-                      "min-h-12 shrink-0 border-felt/40 bg-felt/10 px-4 text-felt hover:bg-felt/20",
-                      requested === value && "border-felt bg-felt/25",
+                      "rounded-2xl border p-4 text-left transition-all",
+                      selected
+                        ? "border-felt bg-felt/10 shadow-[var(--shadow-felt)]"
+                        : "border-border bg-surface/80 hover:border-felt/40 hover:bg-surface",
                     )}
                   >
-                    {formatTime(value)}
-                  </Button>
-                ))}
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-base font-semibold">{tableOption.name}</p>
+                        <p className="mt-1 text-xs uppercase tracking-[0.16em] text-muted-foreground">
+                          {tableOption.type}
+                        </p>
+                      </div>
+                      <span
+                        className={cn(
+                          "rounded-full px-2 py-1 text-[10px] font-medium",
+                          freeStartsCount > 0
+                            ? "bg-felt/10 text-felt"
+                            : "bg-destructive/10 text-destructive",
+                        )}
+                      >
+                        {freeStartsCount > 0 ? "Available" : "Booked"}
+                      </span>
+                    </div>
+
+                    <div className="mt-4 flex items-center justify-between text-sm text-muted-foreground">
+                      <span>
+                        {tableOption.size} • {tableOption.brand}
+                      </span>
+                      <span className="font-semibold text-foreground">₹{price}</span>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="space-y-3 rounded-2xl border border-border bg-surface p-4">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-sm font-medium text-muted-foreground">5. Open time range</p>
+              <Badge variant="outline" className="border-felt/35 text-felt">
+                Flexible booking
+              </Badge>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="booking-start">Start time</Label>
+                <Input
+                  id="booking-start"
+                  type="time"
+                  value={timeInput}
+                  onChange={(event) => setTimeInput(event.target.value)}
+                  className="min-h-12 text-base"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="booking-end">End time</Label>
+                <Input
+                  id="booking-end"
+                  type="time"
+                  value={endTime}
+                  readOnly
+                  className="min-h-12 text-base"
+                />
+              </div>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              {quickStarts.map((value) => (
+                <Button
+                  key={value}
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setTimeInput(toTimeInput(value))}
+                  className={cn(
+                    "min-h-9 border-felt/35 bg-felt/10 text-felt",
+                    requested === value && "border-felt bg-felt/15",
+                  )}
+                >
+                  {formatTime(value)}
+                </Button>
+              ))}
+            </div>
+
+            <div className="space-y-2 rounded-xl border border-border bg-background/40 p-3">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-sm font-medium text-foreground">Live availability</p>
+                <span className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
+                  Today
+                </span>
+              </div>
+              <Timeline
+                segments={timelineSegments}
+                requestedStart={requested}
+                duration={duration}
+                onPick={(minutes) => setTimeInput(toTimeInput(minutes))}
+              />
+            </div>
+
+            {alternativeTables.length > 0 ? (
+              <div className="space-y-2 rounded-xl border border-border bg-background/40 p-3">
+                <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">
+                  Better options
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {alternativeTables.map(({ table: alternativeTable, start }) => (
+                    <Button
+                      key={alternativeTable.id}
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setTableId(alternativeTable.id);
+                        setTimeInput(toTimeInput(start));
+                      }}
+                      className="min-h-9 border-border bg-surface/80"
+                    >
+                      {alternativeTable.shortName} · {formatTime(start)}
+                    </Button>
+                  ))}
+                </div>
               </div>
             ) : null}
 
-            {requestedIsFree && requested !== null ? (
-              <div className="mt-4 rounded-lg border border-felt/45 bg-felt/10 p-4">
+            {requestedIsFree ? (
+              <div className="rounded-xl border border-felt/35 bg-felt/10 p-3">
                 <p className="flex items-center gap-2 text-sm font-semibold text-felt">
                   <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
-                  Free — {formatTime(requested)} to {formatTime(requested + duration)}
+                  {table.name} is free from {formatTime(requested)} to{" "}
+                  {formatTime(requested + duration)}
                 </p>
-                <Button
-                  type="button"
-                  onClick={() => pickStart(requested)}
-                  className="mt-3 min-h-12 w-full"
-                >
-                  Continue with this time
-                </Button>
               </div>
             ) : (
-              <div className="mt-4 rounded-lg border border-warning/45 bg-warning/10 p-4">
+              <div className="rounded-xl border border-warning/45 bg-warning/10 p-3">
                 <p className="flex items-center gap-2 text-sm font-semibold text-warning">
                   <AlertTriangle className="h-4 w-4" aria-hidden="true" />
-                  {requested === null
-                    ? "Enter a start time in 24-hour format."
-                    : !withinHours
-                      ? `We're open ${formatTime(OPEN_START)} to ${formatTime(OPEN_END)} — this session wouldn't fit.`
-                      : `Taken until ${formatTime((clash?.end ?? 0) + 10)} (includes the 10-minute cloth buffer).`}
+                  {withinHours
+                    ? `This time is taken. Suggested next open slot is ${formatTime(recommendedStart)}.`
+                    : `Select a time between ${formatTime(OPEN_START)} and ${formatTime(OPEN_END)}.`}
                 </p>
-
-                {nextFree !== null ? (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => setTimeInput(toTimeInput(nextFree))}
-                    className="mt-3 min-h-12 w-full justify-between border-felt/45 bg-felt/10 text-felt"
-                  >
-                    <span>Next free on {table.shortName}</span>
-                    <span>{formatTime(nextFree)}</span>
-                  </Button>
-                ) : null}
-
-                {alternatives.length > 0 ? (
-                  <div className="mt-3 space-y-2">
-                    <p className="text-sm text-muted-foreground">Same time on another table:</p>
-                    {alternatives.map((alt) => (
-                      <Button
-                        key={alt.table.id}
-                        type="button"
-                        variant="outline"
-                        onClick={() => {
-                          setTableId(alt.table.id);
-                          setTimeInput(toTimeInput(alt.start));
-                        }}
-                        className="min-h-12 w-full justify-between border-border bg-surface/70"
-                      >
-                        <span>{alt.table.name}</span>
-                        <span className="text-felt">{formatTime(alt.start)}</span>
-                      </Button>
-                    ))}
-                  </div>
-                ) : null}
               </div>
             )}
-          </Step>
+
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-background/40 p-3">
+              <div>
+                <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">
+                  Your choice
+                </p>
+                <p className="mt-1 text-base font-semibold text-foreground">
+                  {table.name} · {selectedDate.day}, {selectedDate.date}
+                </p>
+              </div>
+              <div className="text-right">
+                <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Total</p>
+                <p className="mt-1 text-lg font-bold text-felt">₹{price}</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="inline-flex items-center gap-2 text-sm text-muted-foreground">
+              <Clock3 className="h-4 w-4 text-felt" aria-hidden="true" />
+              {requestedIsFree
+                ? `${formatTime(requested)} - ${formatTime(requested + duration)}`
+                : "Choose a free slot"}
+            </div>
+
+            <Button
+              type="button"
+              onClick={openHoldDrawer}
+              disabled={!requestedIsFree}
+              className="min-h-12 gap-2 px-6"
+            >
+              Book now
+              <ArrowRight className="h-4 w-4" aria-hidden="true" />
+            </Button>
+          </div>
         </CardContent>
       </Card>
 
@@ -318,85 +447,84 @@ export function BookingEngine() {
         open={drawerOpen}
         onOpenChange={(open) => {
           setDrawerOpen(open);
-          if (!open) setStart(null);
+          if (!open) setConfirmed(false);
         }}
       >
         <DrawerContent className="mx-auto max-h-[92svh] max-w-2xl border-border bg-background">
           <DrawerHeader className="px-5 text-left">
-            <DrawerTitle className="text-2xl">Confirm your table hold</DrawerTitle>
+            <DrawerTitle className="text-2xl">Hold your table</DrawerTitle>
             <DrawerDescription>
-              No account needed — just your name and phone number. We hold the table for 5 minutes.
+              Quick confirmation. No account required, and the table is held for a few minutes.
             </DrawerDescription>
           </DrawerHeader>
 
-          {start !== null ? (
-            <div className="overflow-y-auto px-5 pb-6">
-              <div className="rounded-lg border border-border bg-surface p-4">
-                <p className="text-sm text-muted-foreground">{table.name}</p>
-                <p className="mt-1 text-lg font-semibold text-foreground">
-                  {selectedDate.day}, {selectedDate.date}
-                </p>
-                <div className="mt-3 flex flex-wrap gap-2 text-sm">
-                  <span className="inline-flex min-h-9 items-center gap-2 rounded-md border border-border bg-surface-subtle px-3">
-                    <Clock3 className="h-4 w-4 text-felt" aria-hidden="true" />
-                    {formatTime(start)} – {formatTime(start + duration)}
-                  </span>
-                  <span className="inline-flex min-h-9 items-center rounded-md border border-border bg-surface-subtle px-3">
-                    {table.size} {table.type === "SNOOKER" ? "Snooker" : "Pool"}
-                  </span>
-                  <span className="inline-flex min-h-9 items-center rounded-md border border-border bg-surface-subtle px-3 text-felt">
-                    {formatPrice(price)}
-                  </span>
-                </div>
+          <div className="overflow-y-auto px-5 pb-6">
+            <div className="rounded-xl border border-border bg-surface p-4">
+              <p className="text-sm text-muted-foreground">{table.name}</p>
+              <p className="mt-1 text-lg font-semibold text-foreground">
+                {selectedDate.day}, {selectedDate.date}
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2 text-sm">
+                <span className="inline-flex min-h-9 items-center gap-2 rounded-md border border-border bg-background px-3">
+                  <Clock3 className="h-4 w-4 text-felt" aria-hidden="true" />
+                  {formatTime(requested)} – {formatTime(requested + duration)}
+                </span>
+                <span className="inline-flex min-h-9 items-center rounded-md border border-border bg-background px-3">
+                  {table.size} • {table.type}
+                </span>
+                <span className="inline-flex min-h-9 items-center rounded-md border border-border bg-background px-3 text-felt">
+                  {formatPrice(price)}
+                </span>
               </div>
-
-              {confirmed ? (
-                <div className="mt-4 rounded-lg border border-felt/45 bg-felt/10 p-4">
-                  <p className="flex items-center gap-2 text-base font-semibold text-felt">
-                    <Sparkles className="h-5 w-5" aria-hidden="true" />
-                    Slot held successfully
-                  </p>
-                  <p className="mt-2 text-sm text-muted-foreground">
-                    Show your phone number at reception. Payment at the counter for now.
-                  </p>
-                  <Button type="button" className="mt-4 min-h-12 w-full">
-                    Pay via UPI (PhonePe/GPay)
-                  </Button>
-                </div>
-              ) : (
-                <form onSubmit={handleSubmit} className="mt-4 space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="booking-name">Your name</Label>
-                    <Input
-                      id="booking-name"
-                      value={name}
-                      onChange={(event) => setName(event.target.value)}
-                      required
-                      className="min-h-12"
-                      placeholder="e.g. Rahul Sharma"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="booking-phone">Phone number</Label>
-                    <Input
-                      id="booking-phone"
-                      type="tel"
-                      inputMode="tel"
-                      value={phone}
-                      onChange={(event) => setPhone(event.target.value)}
-                      required
-                      className="min-h-12"
-                      placeholder="+91 90000 00000"
-                    />
-                  </div>
-                  <Separator />
-                  <Button type="submit" disabled={!canBook} className="min-h-12 w-full">
-                    Hold this slot
-                  </Button>
-                </form>
-              )}
             </div>
-          ) : null}
+
+            {confirmed ? (
+              <div className="mt-4 rounded-xl border border-felt/35 bg-felt/10 p-4">
+                <p className="flex items-center gap-2 text-base font-semibold text-felt">
+                  <Sparkles className="h-5 w-5" aria-hidden="true" />
+                  Table held successfully
+                </p>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  We have saved your slot. Reach reception with your phone number to complete the
+                  booking.
+                </p>
+              </div>
+            ) : (
+              <form onSubmit={handleSubmit} className="mt-4 space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="booking-name">Name</Label>
+                  <Input
+                    id="booking-name"
+                    value={name}
+                    onChange={(event) => setName(event.target.value)}
+                    required
+                    className="min-h-12"
+                    placeholder="Rahul Sharma"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="booking-phone">Phone</Label>
+                  <Input
+                    id="booking-phone"
+                    type="tel"
+                    inputMode="tel"
+                    value={phone}
+                    onChange={(event) => setPhone(event.target.value)}
+                    required
+                    className="min-h-12"
+                    placeholder="+91 90000 00000"
+                  />
+                </div>
+
+                <Separator />
+
+                <Button type="submit" className="min-h-12 w-full">
+                  Hold this table
+                </Button>
+              </form>
+            )}
+          </div>
         </DrawerContent>
       </Drawer>
     </>
@@ -404,7 +532,7 @@ export function BookingEngine() {
 }
 
 const SEGMENT_TONE: Record<DaySegment["kind"], string> = {
-  FREE: "bg-felt/30",
+  FREE: "bg-felt/35",
   BOOKED: "bg-destructive/60",
   HELD: "bg-warning/60",
   BUFFER: "bg-muted",
@@ -426,7 +554,7 @@ function Timeline({
   const hours = Array.from({ length: Math.floor(span / 60) + 1 }, (_, i) => OPEN_START + i * 60);
 
   return (
-    <div className="rounded-lg border border-border bg-surface p-3">
+    <div className="rounded-xl border border-border bg-surface p-3">
       <div className="relative h-12 w-full overflow-hidden rounded-md bg-surface-subtle">
         {segments.map((segment) => (
           <button
@@ -442,7 +570,7 @@ function Timeline({
             )}
             style={{
               left: `${pct(segment.start)}%`,
-              width: `${pct(segment.end) - pct(segment.start)}%`,
+              width: `${Math.max(1, pct(segment.end) - pct(segment.start))}%`,
             }}
           />
         ))}
@@ -458,49 +586,11 @@ function Timeline({
         ) : null}
       </div>
 
-      <div className="mt-1 flex justify-between text-[10px] text-muted-foreground">
+      <div className="mt-2 flex justify-between text-[10px] text-muted-foreground">
         {hours.map((hour) => (
           <span key={hour}>{(Math.floor(hour / 60) % 12 || 12).toString()}</span>
         ))}
       </div>
-
-      <div className="mt-3 flex flex-wrap gap-3 text-xs text-muted-foreground">
-        <LegendSwatch className="bg-felt/60" label="Free — tap to pick" />
-        <LegendSwatch className="bg-destructive/60" label="Booked" />
-        <LegendSwatch className="bg-warning/60" label="On hold" />
-        <LegendSwatch className="bg-muted" label="10-min buffer" />
-      </div>
-    </div>
-  );
-}
-
-function LegendSwatch({ className, label }: { className: string; label: string }) {
-  return (
-    <span className="inline-flex items-center gap-2">
-      <span className={cn("h-2.5 w-4 rounded-sm", className)} />
-      {label}
-    </span>
-  );
-}
-
-function Step({
-  number,
-  title,
-  children,
-}: {
-  number: number;
-  title: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="space-y-3">
-      <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
-        <span className="flex h-7 w-7 items-center justify-center rounded-md bg-secondary text-secondary-foreground">
-          {number}
-        </span>
-        {title}
-      </div>
-      {children}
     </div>
   );
 }

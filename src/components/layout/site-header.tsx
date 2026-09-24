@@ -1,24 +1,53 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { Activity, Menu } from "lucide-react";
-import { useState } from "react";
+import { usePathname, useRouter } from "next/navigation";
+import { Activity, LogOut, Menu } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { ACADEMY } from "@/data/academy";
+import { clearSession, getStoredSession, type AcademySession } from "@/lib/auth";
 import { cn } from "@/lib/utils";
-
-const NAV = [
-  { to: "/", label: "Home" },
-  { to: "/services", label: "Services" },
-  { to: "/booking", label: "Booking" },
-  { to: "/admin", label: "Admin" },
-] as const;
 
 export function SiteHeader() {
   const [open, setOpen] = useState(false);
+  const [session, setSession] = useState<AcademySession | null>(null);
   const pathname = usePathname();
+  const router = useRouter();
+
+  useEffect(() => {
+    setSession(getStoredSession());
+  }, [pathname]);
+
+  const nav = useMemo(() => {
+    const items = [
+      { to: "/", label: "Home" },
+      { to: "/services", label: "Services" },
+      { to: "/booking", label: "Booking" },
+    ];
+
+    if (session?.role === "admin") {
+      items.push({ to: "/admin", label: "Admin" });
+      items.push({ to: "/supervisor", label: "Supervisor" });
+    }
+
+    if (session?.role === "supervisor") {
+      items.push({ to: "/supervisor", label: "Supervisor" });
+    }
+
+    if (!session) {
+      items.push({ to: "/login", label: "Login" });
+    }
+
+    return items;
+  }, [session]);
+
+  function handleLogout() {
+    clearSession();
+    setSession(null);
+    router.push("/");
+  }
 
   return (
     <header className="sticky top-0 z-40 border-b border-border bg-background/85 backdrop-blur">
@@ -34,7 +63,7 @@ export function SiteHeader() {
         </Link>
 
         <div className="hidden items-center gap-1 md:flex">
-          {NAV.map((item) => {
+          {nav.map((item) => {
             const isActive = item.to === "/" ? pathname === "/" : pathname.startsWith(item.to);
             return (
               <Link
@@ -51,9 +80,21 @@ export function SiteHeader() {
               </Link>
             );
           })}
-          <Button asChild className="ml-2 min-h-12 shadow-[var(--shadow-felt)]">
-            <Link href="/booking">Book a table</Link>
-          </Button>
+          {!session ? (
+            <Button asChild className="ml-2 min-h-12 shadow-[var(--shadow-felt)]">
+              <Link href="/booking">Book a table</Link>
+            </Button>
+          ) : (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handleLogout}
+              className="ml-2 min-h-12 border-border bg-surface/70"
+            >
+              <LogOut className="mr-2 h-4 w-4" aria-hidden="true" />
+              Logout
+            </Button>
+          )}
         </div>
 
         <div className="flex items-center gap-2 md:hidden">
@@ -74,7 +115,7 @@ export function SiteHeader() {
       </nav>
 
       <div className={cn("border-t border-border px-4 pb-3 md:hidden", open ? "block" : "hidden")}>
-        {NAV.map((item) => {
+        {nav.map((item) => {
           const isActive = item.to === "/" ? pathname === "/" : pathname.startsWith(item.to);
           return (
             <Link
@@ -92,6 +133,16 @@ export function SiteHeader() {
             </Link>
           );
         })}
+        {session ? (
+          <button
+            type="button"
+            onClick={handleLogout}
+            className="mt-2 flex min-h-12 w-full items-center rounded-md px-3 text-sm font-medium text-muted-foreground hover:bg-surface hover:text-foreground"
+          >
+            <LogOut className="mr-2 h-4 w-4" aria-hidden="true" />
+            Logout
+          </button>
+        ) : null}
       </div>
     </header>
   );
