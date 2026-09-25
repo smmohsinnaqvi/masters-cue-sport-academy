@@ -93,59 +93,63 @@ export default function HomePage() {
         </div>
       </Section>
 
-      <Section
-        title="Cue & Cup Cafe"
-        subtitle="Our in-house canteen — served to the arena rail between frames."
-      >
-        <Card className="border-border bg-surface">
-          <CardContent className="grid gap-4 p-5 sm:grid-cols-2">
-            {CAFE_MENU.map((item) => (
-              <div
-                key={item.name}
-                className="flex items-start justify-between gap-4 border-b border-border pb-3 last:border-0"
-              >
-                <div>
-                  <p className="flex items-center gap-2 text-sm font-semibold">
-                    <Coffee className="h-4 w-4 text-gold" aria-hidden="true" />
-                    {item.name}
-                  </p>
-                  <p className="mt-1 text-xs text-muted-foreground">{item.note}</p>
+      {CAFE_MENU.length > 0 ? (
+        <Section
+          title="Cue & Cup Cafe"
+          subtitle="Our in-house canteen — served to the arena rail between frames."
+        >
+          <Card className="border-border bg-surface">
+            <CardContent className="grid gap-4 p-5 sm:grid-cols-2">
+              {CAFE_MENU.map((item) => (
+                <div
+                  key={item.name}
+                  className="flex items-start justify-between gap-4 border-b border-border pb-3 last:border-0"
+                >
+                  <div>
+                    <p className="flex items-center gap-2 text-sm font-semibold">
+                      <Coffee className="h-4 w-4 text-gold" aria-hidden="true" />
+                      {item.name}
+                    </p>
+                    <p className="mt-1 text-xs text-muted-foreground">{item.note}</p>
+                  </div>
+                  <span className="text-sm font-semibold text-felt">{formatPrice(item.price)}</span>
                 </div>
-                <span className="text-sm font-semibold text-felt">{formatPrice(item.price)}</span>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-      </Section>
+              ))}
+            </CardContent>
+          </Card>
+        </Section>
+      ) : null}
 
-      <Section title="Tournaments & leagues" subtitle="Entry fees, prize pools and spots left.">
-        <div className="grid gap-4 lg:grid-cols-3">
-          {MOCK_TOURNAMENTS.map((t) => (
-            <Card key={t.id} className="border-border bg-surface">
-              <CardHeader className="p-5 pb-2">
-                <Badge variant="outline" className="mb-2 min-h-7 w-fit border-gold/40 text-gold">
-                  <Trophy className="mr-1 h-3.5 w-3.5" aria-hidden="true" />
-                  {t.gameType}
-                </Badge>
-                <CardTitle className="text-lg leading-snug">{t.title}</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-2 p-5 pt-0 text-sm text-muted-foreground">
-                <p className="flex items-center gap-2">
-                  <Clock3 className="h-4 w-4" aria-hidden="true" />
-                  {t.date} · {t.time}
-                </p>
-                <p>
-                  Entry {formatPrice(t.entryFee)} · Prize pool{" "}
-                  <span className="text-felt">{formatPrice(t.prizePool)}</span>
-                </p>
-                <p className={t.status === "FILLING_FAST" ? "text-warning" : "text-foreground"}>
-                  {t.spotsLeft} of {t.totalSpots} spots left
-                </p>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      </Section>
+      {MOCK_TOURNAMENTS.length > 0 ? (
+        <Section title="Tournaments & leagues" subtitle="Entry fees, prize pools and spots left.">
+          <div className="grid gap-4 lg:grid-cols-3">
+            {MOCK_TOURNAMENTS.map((t) => (
+              <Card key={t.id} className="border-border bg-surface">
+                <CardHeader className="p-5 pb-2">
+                  <Badge variant="outline" className="mb-2 min-h-7 w-fit border-gold/40 text-gold">
+                    <Trophy className="mr-1 h-3.5 w-3.5" aria-hidden="true" />
+                    {t.gameType}
+                  </Badge>
+                  <CardTitle className="text-lg leading-snug">{t.title}</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-2 p-5 pt-0 text-sm text-muted-foreground">
+                  <p className="flex items-center gap-2">
+                    <Clock3 className="h-4 w-4" aria-hidden="true" />
+                    {t.date} · {t.time}
+                  </p>
+                  <p>
+                    Entry {formatPrice(t.entryFee)} · Prize pool{" "}
+                    <span className="text-felt">{formatPrice(t.prizePool)}</span>
+                  </p>
+                  <p className={t.status === "FILLING_FAST" ? "text-warning" : "text-foreground"}>
+                    {t.spotsLeft} of {t.totalSpots} spots left
+                  </p>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </Section>
+      ) : null}
 
       <Section title="House rules" subtitle="Keeps the cloth fast and the arena calm.">
         <ul className="grid gap-3 sm:grid-cols-2">

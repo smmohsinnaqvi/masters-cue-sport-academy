@@ -1,4 +1,4 @@
-import { FLOOR_ZONES, MOCK_TABLES, type Table } from "@/data/mock-data";
+import { FLOOR_ZONES, type Table } from "@/data/mock-data";
 import type { TableAvailability } from "@/lib/booking";
 import { cn } from "@/lib/utils";
 
@@ -18,12 +18,12 @@ export function FloorMap({
   selectedTableId,
   availability,
   onSelect,
-  tables = MOCK_TABLES,
+  tables,
 }: {
   selectedTableId: string;
   availability: Record<string, TableAvailability>;
   onSelect: (table: Table) => void;
-  tables?: Table[];
+  tables: Table[];
 }) {
   return (
     <div className="rounded-lg border border-border bg-surface-subtle p-3">

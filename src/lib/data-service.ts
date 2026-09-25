@@ -13,11 +13,26 @@ export async function getLiveTables(): Promise<CompatibleTable[]> {
 }
 
 export async function getLiveBookings(): Promise<CompatibleBooking[]> {
-  const rows = await prisma.booking.findMany({
-    orderBy: { slotStart: "asc" },
+  const rows = await prisma.session.findMany({
+    where: { source: "ONLINE", status: { in: ["HELD", "CONFIRMED"] } },
+    orderBy: { startTime: "asc" },
   });
 
-  return rows.map((row) => normalizeBooking(row as never, 0));
+  return rows.map((row) =>
+    normalizeBooking(
+      {
+        id: row.id,
+        tableId: row.tableId,
+        customerName: row.customerName,
+        customerPhone: row.customerPhone,
+        slotStart: row.startTime,
+        slotEnd: row.plannedEnd,
+        status: row.status,
+        reference: row.refCode,
+      } as never,
+      0,
+    ),
+  );
 }
 
 export async function countLiveTables() {
@@ -25,5 +40,7 @@ export async function countLiveTables() {
 }
 
 export async function countLiveBookings() {
-  return prisma.booking.count();
+  return prisma.session.count({
+    where: { source: "ONLINE", status: { in: ["HELD", "CONFIRMED"] } },
+  });
 }

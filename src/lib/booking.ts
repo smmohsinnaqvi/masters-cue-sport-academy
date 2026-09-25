@@ -1,9 +1,8 @@
-import { MOCK_BOOKINGS, MOCK_TABLES, type BookingRecord, type Table } from "@/data/mock-data";
+import type { BookingRecord, Table } from "@/data/mock-data";
 
 export const OPEN_START = 10 * 60; // 10:00
 export const OPEN_END = 23 * 60; // 23:00
 export const STEP = 30; // minutes between selectable start times
-export const BUFFER = 10; // minutes of cloth brushing / racking after a session
 
 export const DURATIONS = [
   { minutes: 60, label: "1 hr" },
@@ -63,13 +62,12 @@ export function buildDateOptions(count = 7): DateOption[] {
 }
 
 export function bookingsFor(tableId: string, dateOffset: number, extra: BookingRecord[] = []) {
-  const source = extra.length > 0 ? extra : MOCK_BOOKINGS;
-  return source.filter(
+  return extra.filter(
     (b) => b.tableId === tableId && b.dateOffset === dateOffset && b.status !== "CANCELLED",
   );
 }
 
-/** A range is free when it fits opening hours and clears every booking plus its buffer. */
+/** A range is free when it fits opening hours and does not overlap a booking. */
 export function isRangeFree(
   tableId: string,
   dateOffset: number,
@@ -80,9 +78,7 @@ export function isRangeFree(
   const end = start + duration;
   if (start < OPEN_START || end > OPEN_END) return false;
 
-  return bookingsFor(tableId, dateOffset, extra).every(
-    (b) => end + BUFFER <= b.start || start >= b.end + BUFFER,
-  );
+  return bookingsFor(tableId, dateOffset, extra).every((b) => end <= b.start || start >= b.end);
 }
 
 export function startOptions() {
@@ -119,10 +115,12 @@ export function suggestAlternatives(
   dateOffset: number,
   duration: number,
   preferredStart: number,
+  tables: Table[],
   extra: BookingRecord[] = [],
 ) {
-  const source = MOCK_TABLES.find((t) => t.id === tableId);
-  return MOCK_TABLES.filter((t) => t.isActive && t.id !== tableId && t.type === source?.type)
+  const source = tables.find((t) => t.id === tableId);
+  return tables
+    .filter((t) => t.isActive && t.id !== tableId && t.type === source?.type)
     .map((table) => {
       const options = freeStarts(table.id, dateOffset, duration, extra);
       if (options.length === 0) return null;
@@ -152,7 +150,7 @@ export function fromTimeInput(value: string): number | null {
   return h * 60 + m;
 }
 
-export type SegmentKind = "FREE" | "BOOKED" | "BUFFER" | "HELD";
+export type SegmentKind = "FREE" | "BOOKED" | "HELD" | "ONGOING" | "MAINTENANCE";
 
 export interface DaySegment {
   start: number;
@@ -161,7 +159,7 @@ export interface DaySegment {
   label?: string;
 }
 
-/** Full opening-hours timeline for one table: booked blocks, their buffers, and free gaps. */
+/** Full opening-hours timeline for one table: booked blocks and free gaps. */
 export function daySegments(
   tableId: string,
   dateOffset: number,
@@ -179,25 +177,35 @@ export function daySegments(
     const end = Math.min(OPEN_END, booking.end);
     if (end <= OPEN_START || start >= OPEN_END) continue;
     if (start > cursor) segments.push({ start: cursor, end: start, kind: "FREE" });
+    const kind =
+      booking.status === "HELD"
+        ? "HELD"
+        : booking.status === "ONGOING"
+          ? "ONGOING"
+          : booking.status === "MAINTENANCE"
+            ? "MAINTENANCE"
+            : "BOOKED";
     segments.push({
       start,
       end,
-      kind: booking.status === "HELD" ? "HELD" : "BOOKED",
-      label: booking.status === "HELD" ? "On hold" : "Booked",
+      kind,
+      label:
+        kind === "HELD"
+          ? "Temporarily held"
+          : kind === "ONGOING"
+            ? "In use"
+            : kind === "MAINTENANCE"
+              ? "Maintenance"
+              : "Booked",
     });
     cursor = end;
-    const bufferEnd = Math.min(OPEN_END, end + BUFFER);
-    if (bufferEnd > cursor) {
-      segments.push({ start: cursor, end: bufferEnd, kind: "BUFFER", label: "Cloth buffer" });
-      cursor = bufferEnd;
-    }
   }
 
   if (cursor < OPEN_END) segments.push({ start: cursor, end: OPEN_END, kind: "FREE" });
   return segments;
 }
 
-/** The booking that blocks a requested window, if any (buffer included). */
+/** The booking that overlaps a requested window, if any. */
 export function conflictFor(
   tableId: string,
   dateOffset: number,
@@ -207,9 +215,7 @@ export function conflictFor(
 ) {
   const end = start + duration;
   return (
-    bookingsFor(tableId, dateOffset, extra).find(
-      (b) => !(end + BUFFER <= b.start || start >= b.end + BUFFER),
-    ) ?? null
+    bookingsFor(tableId, dateOffset, extra).find((b) => !(end <= b.start || start >= b.end)) ?? null
   );
 }
 
@@ -226,7 +232,7 @@ export function nextFreeStart(
     if (candidate + duration > OPEN_END) return null;
     const clash = conflictFor(tableId, dateOffset, candidate, duration, extra);
     if (!clash) return candidate;
-    candidate = clash.end + BUFFER;
+    candidate = clash.end;
   }
   return null;
 }

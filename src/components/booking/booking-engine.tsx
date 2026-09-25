@@ -10,7 +10,6 @@ import {
 } from "lucide-react";
 import { useMemo, useState, type FormEvent } from "react";
 
-import { FloorMap } from "@/components/booking/floor-map";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -38,21 +37,30 @@ import {
   isRangeFree,
   nextFreeStart,
   sessionPrice,
-  tableAvailability,
   toTimeInput,
   type DaySegment,
 } from "@/lib/booking";
-import { appendBookingQueue } from "@/lib/booking-store";
-import { MOCK_BOOKINGS, MOCK_TABLES, type BookingRecord, type Table } from "@/data/mock-data";
+import { createOnlineBookingAction } from "@/actions/operations-actions";
+import type { BookingRecord, Table } from "@/data/mock-data";
 import { useLiveBookings } from "@/hooks/useLiveBookings";
 import { useLiveTables } from "@/hooks/useLiveTables";
 import { cn } from "@/lib/utils";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 export function BookingEngine() {
   const dateOptions = useMemo(() => buildDateOptions(7), []);
-  const { tables: liveTables } = useLiveTables();
-  const { bookings: liveBookings } = useLiveBookings();
+  const { tables, loading: tablesLoading, error: tablesError } = useLiveTables();
   const [dateOffset, setDateOffset] = useState(0);
+  const { bookings, loading: bookingsLoading, error: bookingsError } = useLiveBookings(dateOffset);
   const [duration, setDuration] = useState(120);
   const [tableType, setTableType] = useState<"ANY" | "SNOOKER" | "POOL">("ANY");
   const [tableId, setTableId] = useState("snk-1");
@@ -61,14 +69,9 @@ export function BookingEngine() {
   const [phone, setPhone] = useState("");
   const [confirmed, setConfirmed] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
-
-  const tables = useMemo(() => (liveTables.length > 0 ? liveTables : MOCK_TABLES), [liveTables]);
-  const bookings = useMemo(
-    () => (liveBookings.length > 0 ? liveBookings : MOCK_BOOKINGS),
-    [liveBookings],
-  );
-
-  const table = tables.find((t) => t.id === tableId) ?? tables[0]!;
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const table = tables.find((t) => t.id === tableId) ?? tables[0] ?? null;
   const selectedDate = dateOptions.find((d) => d.offset === dateOffset) ?? dateOptions[0]!;
 
   const filteredTables = useMemo(
@@ -79,29 +82,20 @@ export function BookingEngine() {
   const requested = fromTimeInput(timeInput) ?? OPEN_START;
   const withinHours = requested >= OPEN_START && requested + duration <= OPEN_END;
   const clash = withinHours
-    ? conflictFor(table.id, dateOffset, requested, duration, bookings)
+    ? table
+      ? conflictFor(table.id, dateOffset, requested, duration, bookings)
+      : "No table selected"
     : null;
   const requestedIsFree = withinHours && !clash;
 
-  const mapAvailability = useMemo(
-    () =>
-      Object.fromEntries(
-        tables.map((tableItem) => [
-          tableItem.id,
-          tableAvailability(tableItem.id, dateOffset, duration, bookings),
-        ]),
-      ),
-    [dateOffset, duration, bookings, tables],
-  );
-
   const quickStarts = useMemo(
-    () => freeStarts(table.id, dateOffset, duration, bookings).slice(0, 6),
-    [table.id, dateOffset, duration, bookings],
+    () => (table ? freeStarts(table.id, dateOffset, duration, bookings).slice(0, 6) : []),
+    [table, dateOffset, duration, bookings],
   );
 
   const timelineSegments = useMemo(
-    () => daySegments(table.id, dateOffset, bookings),
-    [dateOffset, table.id, bookings],
+    () => (table ? daySegments(table.id, dateOffset, bookings) : []),
+    [dateOffset, table, bookings],
   );
 
   const alternativeTables = useMemo(() => {
@@ -124,9 +118,11 @@ export function BookingEngine() {
     return sameTableOptions;
   }, [filteredTables, dateOffset, duration, requested, bookings]);
 
-  const endTime = toTimeInput(Math.min(requested + duration, OPEN_END));
-  const price = sessionPrice(table, duration);
-  const canBook = isRangeFree(table.id, dateOffset, requested, duration, bookings);
+  const endTime = formatTime(Math.min(requested + duration, OPEN_END));
+  const price = table ? sessionPrice(table, duration) : 0;
+  const canBook = Boolean(
+    table && isRangeFree(table.id, dateOffset, requested, duration, bookings),
+  );
 
   function handleTableSelect(nextTable: Table) {
     setTableId(nextTable.id);
@@ -143,27 +139,58 @@ export function BookingEngine() {
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    setSubmitError(null);
+    setConfirmOpen(true);
+  }
 
-    appendBookingQueue({
-      id: `booking-${Date.now()}`,
-      customer: name.trim() || "Walk-in Guest",
-      tableId: table.id,
-      tableName: table.shortName,
-      date: selectedDate.day,
-      start: formatTime(requested),
-      duration,
-      amount: price,
-      status: "pending",
-      source: "online",
-    });
+  async function confirmBooking() {
+    const start = new Date();
+    start.setDate(start.getDate() + dateOffset);
+    const [hours, minutes] = timeInput.split(":").map(Number);
+    start.setHours(hours, minutes, 0, 0);
+    const end = new Date(start.getTime() + duration * 60_000);
 
-    setConfirmed(true);
+    try {
+      if (!table) throw new Error("No table is selected");
+      const booking = await createOnlineBookingAction({
+        tableId: table.id,
+        customerName: name,
+        customerPhone: phone,
+        slotStart: start,
+        slotEnd: end,
+      });
+      setConfirmOpen(false);
+      setConfirmed(true);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "";
+      setSubmitError(
+        message.includes("not available") || message.includes("overlapping")
+          ? "This table is not available for the selected time. Please choose another time or table."
+          : message || "Unable to create booking. Please try again.",
+      );
+      setConfirmOpen(false);
+    }
   }
 
   const recommendedStart = useMemo(
-    () => nextFreeStart(table.id, dateOffset, duration, requested, bookings) ?? requested,
-    [dateOffset, duration, requested, table.id, bookings],
+    () =>
+      table
+        ? (nextFreeStart(table.id, dateOffset, duration, requested, bookings) ?? requested)
+        : requested,
+    [dateOffset, duration, requested, table, bookings],
   );
+
+  if (tablesLoading || bookingsLoading || tables.length === 0 || !table) {
+    return (
+      <Card className="border-border bg-surface">
+        <CardContent className="p-8 text-center text-sm text-muted-foreground">
+          {tablesLoading || bookingsLoading
+            ? "Loading live availability..."
+            : tablesError || bookingsError || "No active tables are configured yet."}
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
     <>
@@ -257,17 +284,8 @@ export function BookingEngine() {
             <div className="flex items-center justify-between gap-3">
               <p className="text-sm font-medium text-muted-foreground">4. Pick a table</p>
               <span className="rounded-full border border-border bg-surface px-2 py-1 text-xs text-muted-foreground">
-                {filteredTables.length} available
+                {filteredTables.length} tables
               </span>
-            </div>
-
-            <div className="rounded-2xl border border-border bg-surface/70 p-3">
-              <FloorMap
-                selectedTableId={table.id}
-                availability={mapAvailability}
-                onSelect={handleTableSelect}
-                tables={filteredTables}
-              />
             </div>
 
             <div className="grid gap-3 sm:grid-cols-2">
@@ -280,6 +298,38 @@ export function BookingEngine() {
                 ).length;
                 const selected = tableOption.id === table.id;
                 const price = sessionPrice(tableOption, duration);
+                const tableBookings = bookings.filter(
+                  (booking) =>
+                    booking.tableId === tableOption.id && booking.dateOffset === dateOffset,
+                );
+                const nowMinutes = new Date().getHours() * 60 + new Date().getMinutes();
+                const activeBooking =
+                  dateOffset === 0
+                    ? tableBookings.find(
+                        (booking) => booking.start <= nowMinutes && nowMinutes < booking.end,
+                      )
+                    : null;
+                const statusLabel = activeBooking
+                  ? activeBooking.status === "ONGOING"
+                    ? "In use"
+                    : activeBooking.status === "HELD"
+                      ? "Held"
+                      : activeBooking.status === "MAINTENANCE"
+                        ? "Maintenance"
+                        : "Booked"
+                  : freeStartsCount > 0
+                    ? "Available"
+                    : "Booked";
+                const statusTone =
+                  statusLabel === "Available"
+                    ? "bg-felt/10 text-felt"
+                    : statusLabel === "In use"
+                      ? "bg-blue-500/10 text-blue-600 dark:text-blue-300"
+                      : statusLabel === "Held"
+                        ? "bg-amber-400/15 text-amber-700 dark:text-amber-300"
+                        : statusLabel === "Maintenance"
+                          ? "bg-purple-500/10 text-purple-600 dark:text-purple-300"
+                          : "bg-destructive/10 text-destructive";
 
                 return (
                   <button
@@ -301,23 +351,21 @@ export function BookingEngine() {
                         </p>
                       </div>
                       <span
-                        className={cn(
-                          "rounded-full px-2 py-1 text-[10px] font-medium",
-                          freeStartsCount > 0
-                            ? "bg-felt/10 text-felt"
-                            : "bg-destructive/10 text-destructive",
-                        )}
+                        className={cn("rounded-full px-2 py-1 text-[10px] font-medium", statusTone)}
                       >
-                        {freeStartsCount > 0 ? "Available" : "Booked"}
+                        {statusLabel}
                       </span>
                     </div>
 
                     <div className="mt-4 flex items-center justify-between text-sm text-muted-foreground">
-                      <span>
-                        {tableOption.size} • {tableOption.brand}
-                      </span>
+                      <span>{tableOption.type}</span>
                       <span className="font-semibold text-foreground">₹{price}</span>
                     </div>
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      {freeStartsCount > 0
+                        ? `${freeStartsCount} start${freeStartsCount === 1 ? "" : "s"} available for ${duration / 60} hr`
+                        : "No matching times for this duration"}
+                    </p>
                   </button>
                 );
               })}
@@ -386,6 +434,19 @@ export function BookingEngine() {
                 duration={duration}
                 onPick={(minutes) => setTimeInput(toTimeInput(minutes))}
               />
+              <div className="mt-3 flex flex-wrap gap-x-4 gap-y-2 text-[11px] text-muted-foreground">
+                <LegendDot className="bg-felt/70" label="Available" />
+                <LegendDot className="bg-red-500" label="Booked" />
+                <LegendDot className="bg-amber-400" label="Held" />
+                <LegendDot className="bg-blue-500" label="In use" />
+                <LegendDot className="bg-purple-500" label="Maintenance" />
+              </div>
+              {!requestedIsFree ? (
+                <div className="mt-3 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                  This table is not available for {formatTime(requested)}–{endTime}. Please choose
+                  another time or table.
+                </div>
+              ) : null}
             </div>
 
             {alternativeTables.length > 0 ? (
@@ -553,15 +614,43 @@ export function BookingEngine() {
           </div>
         </DrawerContent>
       </Drawer>
+      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Confirm booking?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {table.name} on {selectedDate.day}, {selectedDate.date} from {formatTime(requested)}{" "}
+              to {formatTime(requested + duration)} will be held immediately.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Go back</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(event) => {
+                event.preventDefault();
+                void confirmBooking();
+              }}
+            >
+              Confirm booking
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      {submitError ? (
+        <div className="fixed bottom-4 left-1/2 z-50 -translate-x-1/2 rounded-lg border border-destructive/40 bg-background px-4 py-3 text-sm text-destructive shadow-lg">
+          {submitError}
+        </div>
+      ) : null}
     </>
   );
 }
 
 const SEGMENT_TONE: Record<DaySegment["kind"], string> = {
   FREE: "bg-felt/35",
-  BOOKED: "bg-destructive/60",
-  HELD: "bg-warning/60",
-  BUFFER: "bg-muted",
+  BOOKED: "bg-red-500/80",
+  HELD: "bg-amber-400/80",
+  ONGOING: "bg-blue-500/80",
+  MAINTENANCE: "bg-purple-500/80",
 };
 
 function Timeline({
@@ -592,7 +681,9 @@ function Timeline({
             className={cn(
               "absolute inset-y-0 border-r border-background/60",
               SEGMENT_TONE[segment.kind],
-              segment.kind === "FREE" && "cursor-pointer hover:brightness-125",
+              segment.kind === "FREE"
+                ? "cursor-pointer hover:brightness-125"
+                : "cursor-not-allowed opacity-95",
             )}
             style={{
               left: `${pct(segment.start)}%`,
@@ -618,5 +709,14 @@ function Timeline({
         ))}
       </div>
     </div>
+  );
+}
+
+function LegendDot({ className, label }: { className: string; label: string }) {
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <span className={cn("h-2.5 w-2.5 rounded-sm", className)} aria-hidden="true" />
+      {label}
+    </span>
   );
 }

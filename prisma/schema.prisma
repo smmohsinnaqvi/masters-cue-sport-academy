@@ -13,97 +13,71 @@ enum TableType {
   POOL
 }
 
-enum TableZone {
-  MAIN_ARENA
-  LOUNGE
+enum SessionSource {
+  ONLINE
+  WALKIN
+  MAINTENANCE
 }
 
-enum TableStatus {
-  AVAILABLE
-  OCCUPIED
-  RESERVED
-}
-
-enum BookingStatus {
+enum SessionStatus {
   HELD
   CONFIRMED
-  CANCELLED
-}
-
-enum ActiveSessionStatus {
-  IN_PROGRESS
+  ONGOING
   COMPLETED
   CANCELLED
-}
-
-enum GameType {
-  CASUAL
-  MATCH
-  PRACTICE
-}
-
-enum PaymentMethod {
-  CASH
-  UPI
-  CARD
+  NO_SHOW
+  EXPIRED
 }
 
 model Table {
-  id               String          @id @default(cuid())
-  name             String
-  shortName        String          @map("short_name")
-  type             TableType
-  size             String
-  brand            String?
-  hourlyRate       Int             @map("hourly_rate")
-  clothType        String?         @map("cloth_type")
-  isActive         Boolean         @default(true) @map("is_active")
-  zone             TableZone       @default(MAIN_ARENA)
-  currentStatus    TableStatus     @default(AVAILABLE) @map("current_status")
-  sessionStartedAt DateTime?       @map("session_started_at")
-  position         Json?
-  createdAt        DateTime        @default(now()) @map("created_at")
-
-  bookings       Booking[]
-  activeSessions ActiveSession[]
+  id         String    @id @default(cuid())
+  name       String    @unique
+  type       TableType
+  hourlyRate Int       @map("hourly_rate")
+  isActive   Boolean   @default(true) @map("is_active")
+  sessions   Session[]
 
   @@map("tables")
 }
 
-model Booking {
-  id            String        @id @default(cuid())
-  tableId       String        @map("table_id")
-  table         Table         @relation(fields: [tableId], references: [id], onDelete: Cascade)
-  customerName  String        @map("customer_name")
-  customerPhone String        @map("customer_phone")
-  slotStart     DateTime      @map("slot_start")
-  slotEnd       DateTime      @map("slot_end")
-  status        BookingStatus @default(HELD)
-  reference     String?
-  verified      Boolean       @default(false)
-  note          String?
-  lockedUntil   DateTime?     @map("locked_until")
-  createdAt     DateTime      @default(now()) @map("created_at")
+model Supervisor {
+  id           String    @id @default(cuid())
+  username     String    @unique
+  passwordHash String    @map("password_hash")
+  role         String    @default("supervisor")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  sessions     Session[] @relation("CreatedBy")
 
-  @@map("bookings")
+  @@map("supervisors")
 }
 
-model ActiveSession {
-  id             String             @id @default(cuid())
-  tableId        String             @map("table_id")
-  table          Table              @relation(fields: [tableId], references: [id], onDelete: Cascade)
-  customerName   String             @map("customer_name")
-  playerTwoName  String?            @map("player_two_name")
-  winnerName     String?            @map("winner_name")
-  startedAt      DateTime           @map("started_at")
-  endedAt        DateTime?          @map("ended_at")
-  hourlyRate     Int                @map("hourly_rate")
-  totalMinutes   Int?               @map("total_minutes")
-  finalAmount    Int?               @map("final_amount")
-  status         ActiveSessionStatus @default(IN_PROGRESS)
-  gameType       GameType?          @map("game_type")
-  paymentMethod  PaymentMethod?     @map("payment_method")
-  createdAt      DateTime           @default(now()) @map("created_at")
+model Session {
+  id              String        @id @default(cuid())
+  table           Table         @relation(fields: [tableId], references: [id])
+  tableId         String        @map("table_id")
+  source          SessionSource
+  status          SessionStatus
+  startTime       DateTime      @map("start_time")
+  plannedEnd      DateTime      @map("planned_end")
+  actualStart     DateTime?     @map("actual_start")
+  actualEnd       DateTime?     @map("actual_end")
+  holdExpiresAt   DateTime?     @map("hold_expires_at")
+  customerName    String?       @map("customer_name")
+  customerPhone   String?       @map("customer_phone")
+  refCode         String?       @unique @map("ref_code")
+  players         Json?
+  loserName       String?       @map("loser_name")
+  rateSnapshot    Int?          @map("rate_snapshot")
+  durationMinutes Int?          @map("duration_minutes")
+  amount          Int?
+  paymentStatus   String        @default("UNPAID") @map("payment_status")
+  createdBy       Supervisor?   @relation("CreatedBy", fields: [createdById], references: [id])
+  createdById     String?       @map("created_by_id")
+  createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime      @updatedAt @map("updated_at")
 
-  @@map("active_sessions")
+  @@index([tableId, status])
+  @@index([tableId, startTime, plannedEnd])
+  @@index([status, holdExpiresAt])
+  @@map("sessions")
 }

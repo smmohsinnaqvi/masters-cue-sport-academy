@@ -30,6 +30,17 @@ export type CompatibleTable = {
   position: { x: number; y: number; w: number; h: number };
 };
 
+const TABLE_LAYOUT: Record<string, { x: number; y: number; w: number; h: number }> = {
+  S1: { x: 6, y: 6, w: 24, h: 13 },
+  S2: { x: 38, y: 6, w: 24, h: 13 },
+  S3: { x: 70, y: 6, w: 24, h: 13 },
+  S4: { x: 6, y: 25, w: 24, h: 13 },
+  S5: { x: 38, y: 25, w: 24, h: 13 },
+  S6: { x: 70, y: 25, w: 24, h: 13 },
+  P1: { x: 14, y: 45, w: 19, h: 11 },
+  P2: { x: 40, y: 45, w: 19, h: 11 },
+};
+
 export function normalizeTable(row: RawTableRow): CompatibleTable {
   const positionSource =
     typeof row.position === "string" ? JSON.parse(row.position) : (row.position ?? {});
@@ -52,12 +63,15 @@ export function normalizeTable(row: RawTableRow): CompatibleTable {
     clothType: row.clothType ?? row.cloth_type ?? "Tournament cloth",
     isActive: row.isActive ?? row.is_active ?? true,
     zone,
-    position: {
-      x: Number(position.x ?? 0),
-      y: Number(position.y ?? 0),
-      w: Number(position.w ?? 0),
-      h: Number(position.h ?? 0),
-    },
+    position:
+      Number(position.w ?? 0) > 0
+        ? {
+            x: Number(position.x),
+            y: Number(position.y),
+            w: Number(position.w),
+            h: Number(position.h),
+          }
+        : (TABLE_LAYOUT[row.name ?? ""] ?? { x: 0, y: 0, w: 0, h: 0 }),
   };
 }
 
@@ -69,7 +83,7 @@ export type CompatibleBooking = {
   end: number;
   customerName: string;
   customerPhone: string;
-  status: "HELD" | "CONFIRMED" | "CANCELLED";
+  status: "HELD" | "CONFIRMED" | "ONGOING" | "MAINTENANCE" | "CANCELLED";
   reference: string;
   verified: boolean;
   note?: string;
@@ -87,7 +101,7 @@ type BookingRow = {
   slot_start?: Date | string;
   slotEnd?: Date | string;
   slot_end?: Date | string;
-  status?: "HELD" | "CONFIRMED" | "CANCELLED" | string;
+  status?: "HELD" | "CONFIRMED" | "ONGOING" | "MAINTENANCE" | "CANCELLED" | string;
   reference?: string | null;
   verified?: boolean;
   note?: string | null;

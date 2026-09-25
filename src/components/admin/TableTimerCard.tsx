@@ -72,18 +72,14 @@ export function TableTimerCard({
               </Badge>
             </div>
             <p className="text-sm text-muted-foreground">
-              {table.size} · ₹{Number(table.hourly_rate).toFixed(2)}/hr
+              ₹{Number(table.hourly_rate).toFixed(2)}/hr
             </p>
           </div>
           <Badge
             variant="outline"
-            className={
-              table.current_status === "AVAILABLE"
-                ? "border-felt/40 text-felt"
-                : "border-warning/45 text-warning"
-            }
+            className={!isRunning ? "border-felt/40 text-felt" : "border-warning/45 text-warning"}
           >
-            {table.current_status}
+            {isRunning ? "ONGOING" : "AVAILABLE"}
           </Badge>
         </div>
 

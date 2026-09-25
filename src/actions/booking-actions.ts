@@ -1,6 +1,7 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
+import { confirmSessionAction, createHoldAction } from "@/actions/operations-actions";
 
 export type BookingInput = {
   tableId: string;
@@ -8,54 +9,41 @@ export type BookingInput = {
   customerPhone: string;
   slotStart: Date | string;
   slotEnd: Date | string;
-  status?: "HELD" | "CONFIRMED" | "CANCELLED";
-  reference?: string | null;
-  note?: string | null;
-  verified?: boolean;
 };
 
 export async function createBookingAction(input: BookingInput) {
-  const table = await prisma.table.findUnique({ where: { id: input.tableId } });
-
-  if (!table) {
-    throw new Error("Table not found");
-  }
-
-  const booking = await prisma.booking.create({
-    data: {
-      tableId: input.tableId,
-      customerName: input.customerName,
-      customerPhone: input.customerPhone,
-      slotStart: new Date(input.slotStart),
-      slotEnd: new Date(input.slotEnd),
-      status: input.status ?? "HELD",
-      reference: input.reference ?? `MCA-${Date.now().toString().slice(-6)}`,
-      note: input.note ?? null,
-      verified: input.verified ?? false,
-    },
+  const start = new Date(input.slotStart);
+  const end = new Date(input.slotEnd);
+  const hold = await createHoldAction({
+    tableId: input.tableId,
+    startTime: start,
+    durationMinutes: Math.ceil((end.getTime() - start.getTime()) / 60_000),
   });
-
-  return booking;
+  return confirmSessionAction({
+    sessionId: hold.id,
+    customerName: input.customerName,
+    customerPhone: input.customerPhone,
+  });
 }
 
 export async function updateBookingStatusAction(
-  bookingId: string,
-  status: "HELD" | "CONFIRMED" | "CANCELLED",
+  sessionId: string,
+  status: "CONFIRMED" | "CANCELLED" | "NO_SHOW",
 ) {
-  return prisma.booking.update({
-    where: { id: bookingId },
+  return prisma.session.update({
+    where: { id: sessionId },
     data: { status },
   });
 }
 
-export async function cancelBookingAction(bookingId: string) {
-  return updateBookingStatusAction(bookingId, "CANCELLED");
+export async function cancelBookingAction(sessionId: string) {
+  return updateBookingStatusAction(sessionId, "CANCELLED");
 }
 
-export async function confirmBookingAction(bookingId: string) {
-  return updateBookingStatusAction(bookingId, "CONFIRMED");
+export async function confirmBookingAction(sessionId: string) {
+  return updateBookingStatusAction(sessionId, "CONFIRMED");
 }
 
-export async function getBookingByIdAction(bookingId: string) {
-  return prisma.booking.findUnique({ where: { id: bookingId } });
+export async function getBookingByIdAction(sessionId: string) {
+  return prisma.session.findUnique({ where: { id: sessionId } });
 }

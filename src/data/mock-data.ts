@@ -22,7 +22,7 @@ export interface BookingRecord {
   end: number;
   customerName: string;
   customerPhone: string;
-  status: "HELD" | "CONFIRMED" | "CANCELLED";
+  status: "HELD" | "CONFIRMED" | "ONGOING" | "MAINTENANCE" | "CANCELLED";
   reference: string;
   verified: boolean;
   note?: string;
@@ -182,7 +182,9 @@ export const FLOOR_ZONES = [
   { id: "reception", label: "Reception", x: 36, y: 58, w: 22, h: 4, tone: "felt" as const },
 ];
 
-export const MOCK_BOOKINGS: BookingRecord[] = [
+export const MOCK_BOOKINGS: BookingRecord[] = [];
+/*
+const LEGACY_MOCK_BOOKINGS: BookingRecord[] = [
   {
     id: "bk-1",
     tableId: "snk-1",
@@ -295,8 +297,11 @@ export const MOCK_BOOKINGS: BookingRecord[] = [
     note: "Academy batch",
   },
 ];
+*/
 
-export const MOCK_TOURNAMENTS: Tournament[] = [
+export const MOCK_TOURNAMENTS: Tournament[] = [];
+/*
+export const LEGACY_MOCK_TOURNAMENTS: Tournament[] = [
   {
     id: "tourney-1",
     title: "Masters Cue State Snooker Open",
@@ -334,6 +339,7 @@ export const MOCK_TOURNAMENTS: Tournament[] = [
     status: "OPEN",
   },
 ];
+*/
 
 export const MOCK_COACHING: CoachingPackage[] = [
   {
@@ -377,11 +383,4 @@ export const MOCK_COACHING: CoachingPackage[] = [
   },
 ];
 
-export const CAFE_MENU: CafeItem[] = [
-  { name: "Filter Coffee / Masala Chai", price: 60, note: "Brewed fresh through the night" },
-  { name: "Cold Coffee & Shakes", price: 120, note: "Served at the arena rail" },
-  { name: "Club Sandwich", price: 150, note: "Veg & chicken options" },
-  { name: "Peri Peri Fries", price: 110, note: "Most ordered between frames" },
-  { name: "Paneer / Chicken Wrap", price: 180, note: "Quick between-session meal" },
-  { name: "Energy Bowls & Salads", price: 190, note: "Light plates for long sessions" },
-];
+export const CAFE_MENU: CafeItem[] = [];
