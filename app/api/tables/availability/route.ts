@@ -16,7 +16,10 @@ export async function GET(request: Request) {
   const sessions = await prisma.session.findMany({
     where: {
       ...(tableId ? { tableId } : {}),
-      status: { in: ["HELD", "CONFIRMED", "ONGOING"] },
+      OR: [
+        { status: { in: ["CONFIRMED", "ONGOING"] } },
+        { status: "HELD", holdExpiresAt: { gt: new Date() } },
+      ],
       startTime: { lt: end },
       plannedEnd: { gt: start },
     },

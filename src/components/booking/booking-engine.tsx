@@ -569,11 +569,11 @@ export function BookingEngine() {
               <div className="mt-4 rounded-xl border border-felt/35 bg-felt/10 p-4">
                 <p className="flex items-center gap-2 text-base font-semibold text-felt">
                   <Sparkles className="h-5 w-5" aria-hidden="true" />
-                  Table held successfully
+                  Request submitted
                 </p>
                 <p className="mt-2 text-sm text-muted-foreground">
-                  We have saved your slot. Reach reception with your phone number to complete the
-                  booking.
+                  Your time is reserved while our team reviews the request. We will confirm it with
+                  you before the session.
                 </p>
               </div>
             ) : (
@@ -607,7 +607,7 @@ export function BookingEngine() {
                 <Separator />
 
                 <Button type="submit" className="min-h-12 w-full">
-                  Hold this table
+                  Request this table
                 </Button>
               </form>
             )}
@@ -620,7 +620,7 @@ export function BookingEngine() {
             <AlertDialogTitle>Confirm booking?</AlertDialogTitle>
             <AlertDialogDescription>
               {table.name} on {selectedDate.day}, {selectedDate.date} from {formatTime(requested)}{" "}
-              to {formatTime(requested + duration)} will be held immediately.
+              to {formatTime(requested + duration)} will be reserved while staff reviews it.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

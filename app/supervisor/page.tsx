@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Check, PencilLine, Play, Plus, Square, Trash2, UserCog, X } from "lucide-react";
+import { PencilLine, Plus, Square, Trash2, UserCog, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 import { RoleGate } from "@/components/auth/role-gate";
@@ -33,7 +33,7 @@ import type { Table } from "@/data/mock-data";
 import { clearSession } from "@/lib/auth";
 import { supabase } from "@/lib/supabase";
 
-type EntryStatus = "live" | "booked" | "completed";
+type EntryStatus = "live" | "booked" | "completed" | "cancelled" | "no-show" | "expired";
 type Entry = {
   id: string;
   sessionId?: string;
@@ -47,6 +47,7 @@ type Entry = {
   endTime: string;
   payment: string;
   amount: number;
+  source: "ONLINE" | "WALKIN" | "MAINTENANCE";
 };
 type Booking = {
   id: string;
@@ -54,7 +55,7 @@ type Booking = {
   customerName: string;
   slotStart: string;
   slotEnd: string;
-  status: "HELD" | "CONFIRMED" | "CANCELLED";
+  status: "HELD" | "CONFIRMED" | "CANCELLED" | "NO_SHOW" | "EXPIRED";
   verified: boolean;
   table?: { shortName: string; type: Table["type"] };
 };
@@ -64,7 +65,6 @@ const emptyForm = {
   tableId: "",
   playerOne: "",
   playerTwo: "",
-  payment: "CASH" as "CASH" | "UPI" | "CARD",
 };
 
 function time(value: Date | string | null) {
@@ -78,34 +78,48 @@ function time(value: Date | string | null) {
 
 function entriesFromSnapshot(snapshot: Snapshot): Entry[] {
   return snapshot.flatMap((table) =>
-    table.sessions
-      .filter((session) => session.source === "WALKIN")
-      .map((session) => ({
-        id: session.id,
-        sessionId: session.id,
-        tableId: table.id,
-        tableName: table.name,
-        tableType: table.type,
-        status: "live",
-        playerOne:
-          Array.isArray(session.players) &&
-          session.players[0] &&
-          typeof session.players[0] === "object" &&
-          "name" in session.players[0]
-            ? String(session.players[0].name)
-            : "Walk-in",
-        playerTwo:
-          Array.isArray(session.players) &&
-          session.players[1] &&
-          typeof session.players[1] === "object" &&
-          "name" in session.players[1]
-            ? String(session.players[1].name)
+    table.sessions.map((session) => ({
+      id: session.id,
+      sessionId: session.id,
+      tableId: table.id,
+      tableName: table.name,
+      tableType: table.type,
+      status:
+        session.status === "ONGOING"
+          ? "live"
+          : session.status === "CONFIRMED" || session.status === "HELD"
+            ? "booked"
+            : session.status === "NO_SHOW"
+              ? "no-show"
+              : session.status === "CANCELLED"
+                ? "cancelled"
+                : session.status === "EXPIRED"
+                  ? "expired"
+                  : "completed",
+      playerOne:
+        session.source === "WALKIN" &&
+        Array.isArray(session.players) &&
+        session.players[0] &&
+        typeof session.players[0] === "object" &&
+        "name" in session.players[0]
+          ? String(session.players[0].name)
+          : (session.customerName ?? "Walk-in"),
+      playerTwo:
+        session.source === "WALKIN" &&
+        Array.isArray(session.players) &&
+        session.players[1] &&
+        typeof session.players[1] === "object" &&
+        "name" in session.players[1]
+          ? String(session.players[1].name)
+          : session.source === "ONLINE"
+            ? (session.customerPhone ?? "")
             : "Opponent",
-        startTime: time(session.actualStart ?? session.startTime),
-        endTime: "",
-        payment: session.paymentStatus,
-        amount: session.amount ?? 0,
-      })),
+      startTime: time(session.actualStart ?? session.startTime),
+      endTime: time(session.actualEnd ?? session.plannedEnd),
+      payment: session.paymentStatus,
+      amount: session.amount ?? 0,
+      source: session.source,
+    })),
   );
 }
 
@@ -124,7 +138,11 @@ function bookingsFromSnapshot(snapshot: Snapshot): Booking[] {
             ? "HELD"
             : booking.status === "CONFIRMED"
               ? "CONFIRMED"
-              : "CANCELLED",
+              : booking.status === "NO_SHOW"
+                ? "NO_SHOW"
+                : booking.status === "EXPIRED"
+                  ? "EXPIRED"
+                  : "CANCELLED",
         verified: booking.status === "CONFIRMED",
         table: { shortName: table.name, type: table.type },
       })),
@@ -138,6 +156,11 @@ export default function SupervisorPage() {
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Entry | null>(null);
   const [form, setForm] = useState(emptyForm);
+  const [endSession, setEndSession] = useState<{
+    sessionId: string;
+    loserName: string;
+    paymentMethod: "CASH" | "UPI" | "CARD";
+  } | null>(null);
   const [confirm, setConfirm] = useState<{
     title: string;
     description: string;
@@ -178,8 +201,10 @@ export default function SupervisorPage() {
 
   const tables = useMemo(() => snapshot, [snapshot]);
   const entries = entriesFromSnapshot(tables);
-  const liveCount = entries.length;
-  const bookedCount = bookings.filter((booking) => booking.status !== "CANCELLED").length;
+  const liveCount = entries.filter((entry) => entry.status === "live").length;
+  const bookedCount = bookings.filter(
+    (booking) => booking.status === "HELD" || booking.status === "CONFIRMED",
+  ).length;
 
   function openCreate() {
     setEditing(null);
@@ -193,7 +218,6 @@ export default function SupervisorPage() {
       tableId: entry.tableId,
       playerOne: entry.playerOne,
       playerTwo: entry.playerTwo,
-      payment: entry.payment as typeof emptyForm.payment,
     });
     setShowForm(true);
   }
@@ -210,7 +234,6 @@ export default function SupervisorPage() {
         tableId: form.tableId,
         customerName: form.playerOne,
         playerTwoName: form.playerTwo,
-        paymentMethod: form.payment,
       });
     }
     setShowForm(false);
@@ -324,21 +347,6 @@ export default function SupervisorPage() {
                       onChange={(event) => setForm({ ...form, playerTwo: event.target.value })}
                     />
                   </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="payment">Payment</Label>
-                    <select
-                      id="payment"
-                      value={form.payment}
-                      onChange={(event) =>
-                        setForm({ ...form, payment: event.target.value as typeof form.payment })
-                      }
-                      className="flex min-h-11 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                    >
-                      <option value="CASH">Cash</option>
-                      <option value="UPI">UPI</option>
-                      <option value="CARD">Card</option>
-                    </select>
-                  </div>
                   <div className="md:col-span-4 flex justify-end gap-2">
                     <Button type="button" variant="outline" onClick={() => setShowForm(false)}>
                       Cancel
@@ -380,7 +388,7 @@ export default function SupervisorPage() {
                       {entries.length === 0 ? (
                         <tr>
                           <td colSpan={8} className="px-4 py-10 text-center text-muted-foreground">
-                            No active walk-in sessions.
+                            No session records yet.
                           </td>
                         </tr>
                       ) : (
@@ -397,56 +405,58 @@ export default function SupervisorPage() {
                               </Badge>
                             </td>
                             <td className="px-4 py-3">{entry.startTime}</td>
-                            <td className="px-4 py-3">Open</td>
+                            <td className="px-4 py-3">{entry.endTime || "Open"}</td>
                             <td className="px-4 py-3">{entry.payment}</td>
-                            <td className="px-4 py-3">—</td>
+                            <td className="px-4 py-3">
+                              {entry.amount > 0 ? `₹${entry.amount.toFixed(2)}` : "—"}
+                            </td>
                             <td className="px-4 py-3">
                               <div className="flex justify-end gap-1">
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  onClick={() => openEdit(entry)}
-                                  aria-label="Edit ledger entry"
-                                >
-                                  <PencilLine className="h-4 w-4" />
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  onClick={() =>
-                                    ask(
-                                      "Finish this session?",
-                                      "The final amount will be calculated from the hourly rate.",
-                                      async () => {
-                                        await endSessionAction({
+                                {entry.source === "WALKIN" && entry.status === "live" ? (
+                                  <>
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      onClick={() => openEdit(entry)}
+                                      aria-label="Edit ledger entry"
+                                    >
+                                      <PencilLine className="h-4 w-4" />
+                                    </Button>
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      onClick={() =>
+                                        setEndSession({
                                           sessionId: entry.sessionId!,
                                           loserName: entry.playerOne,
-                                        });
-                                        await refresh();
-                                      },
-                                    )
-                                  }
-                                  aria-label="Finish session"
-                                >
-                                  <Square className="h-4 w-4" />
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  onClick={() =>
-                                    ask(
-                                      "Cancel this session?",
-                                      "The table will be made available again.",
-                                      async () => {
-                                        await cancelSessionAction(entry.sessionId!);
-                                        await refresh();
-                                      },
-                                    )
-                                  }
-                                  aria-label="Cancel session"
-                                >
-                                  <Trash2 className="h-4 w-4 text-destructive" />
-                                </Button>
+                                          paymentMethod: "CASH",
+                                        })
+                                      }
+                                      aria-label="Finish session"
+                                    >
+                                      <Square className="h-4 w-4" />
+                                    </Button>
+                                  </>
+                                ) : null}
+                                {entry.status === "booked" ? (
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={() =>
+                                      ask(
+                                        "Cancel this session?",
+                                        "The table will be made available again.",
+                                        async () => {
+                                          await cancelSessionAction(entry.sessionId!);
+                                          await refresh();
+                                        },
+                                      )
+                                    }
+                                    aria-label="Cancel session"
+                                  >
+                                    <Trash2 className="h-4 w-4 text-destructive" />
+                                  </Button>
+                                ) : null}
                               </div>
                             </td>
                           </tr>
@@ -500,22 +510,44 @@ export default function SupervisorPage() {
                             Confirm
                           </Button>
                         ) : null}
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() =>
-                            ask(
-                              "Cancel this booking?",
-                              "The table will become available for this time range.",
-                              async () => {
-                                await updateBookingStatusAction(booking.id, "CANCELLED");
-                                await refresh();
-                              },
-                            )
-                          }
-                        >
-                          <X className="mr-1 h-4 w-4" /> Cancel
-                        </Button>
+                        {booking.status === "CONFIRMED" ? (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() =>
+                              ask(
+                                "Mark this booking as no-show?",
+                                "Use this only when the customer did not arrive for the approved booking.",
+                                async () => {
+                                  await updateBookingStatusAction(booking.id, "NO_SHOW");
+                                  await refresh();
+                                },
+                              )
+                            }
+                          >
+                            No-show
+                          </Button>
+                        ) : null}
+                        {booking.status !== "NO_SHOW" &&
+                        booking.status !== "CANCELLED" &&
+                        booking.status !== "EXPIRED" ? (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() =>
+                              ask(
+                                "Cancel this booking?",
+                                "The table will become available for this time range.",
+                                async () => {
+                                  await updateBookingStatusAction(booking.id, "CANCELLED");
+                                  await refresh();
+                                },
+                              )
+                            }
+                          >
+                            <X className="mr-1 h-4 w-4" /> Cancel
+                          </Button>
+                        ) : null}
                       </div>
                     </div>
                   ))
@@ -544,6 +576,84 @@ export default function SupervisorPage() {
                 }}
               >
                 Continue
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+        <AlertDialog
+          open={Boolean(endSession)}
+          onOpenChange={(open) => {
+            if (!open) setEndSession(null);
+          }}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Close walk-in session</AlertDialogTitle>
+              <AlertDialogDescription>
+                Confirm the final player and payment method. The exact bill will be calculated from
+                the actual play time.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <div className="space-y-4 py-2">
+              <div className="space-y-2">
+                <Label htmlFor="loser-name">Paying player</Label>
+                <Input
+                  id="loser-name"
+                  value={endSession?.loserName ?? ""}
+                  onChange={(event) =>
+                    setEndSession((current) =>
+                      current ? { ...current, loserName: event.target.value } : current,
+                    )
+                  }
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="end-payment">Payment method</Label>
+                <select
+                  id="end-payment"
+                  value={endSession?.paymentMethod ?? "CASH"}
+                  onChange={(event) =>
+                    setEndSession((current) =>
+                      current
+                        ? {
+                            ...current,
+                            paymentMethod: event.target.value as "CASH" | "UPI" | "CARD",
+                          }
+                        : current,
+                    )
+                  }
+                  className="flex min-h-11 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                >
+                  <option value="CASH">Cash</option>
+                  <option value="UPI">UPI</option>
+                  <option value="CARD">Card</option>
+                </select>
+              </div>
+            </div>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Go back</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={(event) => {
+                  event.preventDefault();
+                  if (!endSession?.loserName.trim()) {
+                    setError("Paying player is required before closing the session.");
+                    return;
+                  }
+                  const current = endSession;
+                  void endSessionAction(current).then(
+                    async () => {
+                      setEndSession(null);
+                      setError(null);
+                      await refresh();
+                    },
+                    (reason) =>
+                      setError(
+                        reason instanceof Error ? reason.message : "Unable to close session",
+                      ),
+                  );
+                }}
+              >
+                Close and record payment
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
