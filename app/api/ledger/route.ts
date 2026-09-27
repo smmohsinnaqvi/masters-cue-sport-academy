@@ -29,7 +29,10 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Invalid ledger view" }, { status: 400 });
   }
   if (view === "bookings" && (date || source || status || payment)) {
-    return NextResponse.json({ error: "Bookings view does not accept Ledger filters" }, { status: 400 });
+    return NextResponse.json(
+      { error: "Bookings view does not accept Ledger filters" },
+      { status: 400 },
+    );
   }
   if (date && !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
     return NextResponse.json({ error: "Invalid ledger date" }, { status: 400 });
@@ -56,8 +59,8 @@ export async function GET(request: Request) {
   await reconcileSessionLifecycle();
   const where: Prisma.SessionWhereInput = view === "bookings" ? { source: "ONLINE" } : {};
   if (dayBounds) where.startTime = { gte: dayBounds.start, lt: dayBounds.end };
-  if (source) where.source = source;
-  if (status) where.status = status;
+  if (source) where.source = source as SessionSource;
+  if (status) where.status = status as SessionStatus;
   if (payment) where.paymentStatus = payment;
 
   if (cursor) {

@@ -402,12 +402,19 @@ export default function SupervisorPage() {
             </div>
           </div>
           <div className="mt-4 grid gap-6 lg:mt-6 lg:grid-cols-2 xl:grid-cols-[1.15fr_0.85fr]">
-            <Card className={cn("min-w-0 border-border bg-surface", activeHistory !== "ledger" && "hidden lg:block")}>
+            <Card
+              className={cn(
+                "min-w-0 border-border bg-surface",
+                activeHistory !== "ledger" && "hidden lg:block",
+              )}
+            >
               <CardHeader className="gap-3 p-4 sm:p-6">
                 <CardTitle>Ledger</CardTitle>
                 <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                   <div className="space-y-1">
-                    <Label htmlFor="ledger-date" className="text-xs">Date</Label>
+                    <Label htmlFor="ledger-date" className="text-xs">
+                      Date
+                    </Label>
                     <Input
                       id="ledger-date"
                       type="date"
@@ -599,17 +606,22 @@ export default function SupervisorPage() {
                       )}
                     </tbody>
                   </table>
-                {ledgerPage.error ? (
-                  <p className="p-4 text-sm text-destructive">{ledgerPage.error}</p>
-                ) : null}
-                {ledgerPage.loading ? (
-                  <p className="p-4 text-center text-sm text-muted-foreground">Loading ledger…</p>
-                ) : null}
-                {ledgerPage.hasMore ? <div ref={ledgerPage.sentinelRef} className="h-4" /> : null}
+                  {ledgerPage.error ? (
+                    <p className="p-4 text-sm text-destructive">{ledgerPage.error}</p>
+                  ) : null}
+                  {ledgerPage.loading ? (
+                    <p className="p-4 text-center text-sm text-muted-foreground">Loading ledger…</p>
+                  ) : null}
+                  {ledgerPage.hasMore ? <div ref={ledgerPage.sentinelRef} className="h-4" /> : null}
                 </div>
               </CardContent>
             </Card>
-            <Card className={cn("min-w-0 border-border bg-surface", activeHistory !== "bookings" && "hidden lg:block")}>
+            <Card
+              className={cn(
+                "min-w-0 border-border bg-surface",
+                activeHistory !== "bookings" && "hidden lg:block",
+              )}
+            >
               <CardHeader className="p-4 sm:p-6">
                 <CardTitle>Bookings</CardTitle>
               </CardHeader>

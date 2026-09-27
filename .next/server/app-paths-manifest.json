@@ -5,14 +5,14 @@
   "/api/tables/route": "app/api/tables/route.js",
   "/api/tables/availability/route": "app/api/tables/availability/route.js",
   "/api/cron/cleanup/route": "app/api/cron/cleanup/route.js",
-  "/booking/page": "app/booking/page.js",
   "/login/page": "app/login/page.js",
-  "/admin/page": "app/admin/page.js",
+  "/booking/page": "app/booking/page.js",
   "/supervisor/page": "app/supervisor/page.js",
+  "/admin/page": "app/admin/page.js",
   "/services/page": "app/services/page.js",
-  "/page": "app/page.js",
-  "/admin/settings/cafeteria/page": "app/admin/settings/cafeteria/page.js",
   "/admin/settings/page": "app/admin/settings/page.js",
+  "/page": "app/page.js",
+  "/admin/settings/tournaments/page": "app/admin/settings/tournaments/page.js",
   "/admin/settings/rates/page": "app/admin/settings/rates/page.js",
-  "/admin/settings/tournaments/page": "app/admin/settings/tournaments/page.js"
+  "/admin/settings/cafeteria/page": "app/admin/settings/cafeteria/page.js"
 }
