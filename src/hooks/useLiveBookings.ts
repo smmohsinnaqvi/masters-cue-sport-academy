@@ -1,35 +1,27 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { type BookingRecord } from "@/data/mock-data";
+import { useEffect, useRef, useState } from "react";
+import type { BookingRecord } from "@/types/operations";
+import { academyDateKeyForOffset, academyDateOffset } from "@/lib/academy-time";
 import { normalizeBooking } from "@/lib/real-data";
 import { supabase } from "@/lib/supabase";
-
-function dateOffsetFor(value: string | Date) {
-  const today = new Date();
-  const target = new Date(value);
-  const start = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
-  const targetStart = new Date(target.getFullYear(), target.getMonth(), target.getDate()).getTime();
-  return Math.round((targetStart - start) / 86_400_000);
-}
 
 export function useLiveBookings(selectedDateOffset = 0) {
   const [bookings, setBookings] = useState<BookingRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const extensionTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     let mounted = true;
+    function clearExtensionTimer() {
+      if (extensionTimer.current) clearTimeout(extensionTimer.current);
+      extensionTimer.current = null;
+    }
+
     async function load() {
       try {
-        const today = new Date();
-        const date = new Date(today.getTime());
-        date.setDate(date.getDate() + selectedDateOffset);
-        const dateKey = [
-          date.getFullYear(),
-          String(date.getMonth() + 1).padStart(2, "0"),
-          String(date.getDate()).padStart(2, "0"),
-        ].join("-");
+        const dateKey = academyDateKeyForOffset(selectedDateOffset);
         const response = await fetch(`/api/tables/availability?date=${dateKey}`, {
           cache: "no-store",
         });
@@ -38,16 +30,20 @@ export function useLiveBookings(selectedDateOffset = 0) {
           error?: string;
         };
         if (!response.ok) throw new Error(payload.error ?? "Unable to load booking data");
-        const next = (payload.sessions ?? []).map((row) => {
-          const raw = row as unknown as Record<string, unknown>;
-          const tableId = raw.tableId ?? raw.table_id;
-          const startTime = raw.startTime ?? raw.start_time;
-          const plannedEnd = raw.plannedEnd ?? raw.planned_end;
-
+        const next = (payload.sessions ?? []).map((raw) => {
+          const tableId = raw.tableId;
+          const startTime = raw.startTime;
+          const plannedEnd = raw.plannedEnd;
           if (
+            typeof raw.id !== "string" ||
             typeof tableId !== "string" ||
             typeof startTime !== "string" ||
-            typeof plannedEnd !== "string"
+            typeof plannedEnd !== "string" ||
+            (raw.source !== "ONLINE" && raw.source !== "WALKIN" && raw.source !== "MAINTENANCE") ||
+            (raw.status !== "HELD" &&
+              raw.status !== "CONFIRMED" &&
+              raw.status !== "ONGOING" &&
+              raw.status !== "CANCELLED")
           ) {
             throw new Error("Availability response contained an invalid session");
           }
@@ -55,18 +51,35 @@ export function useLiveBookings(selectedDateOffset = 0) {
           return normalizeBooking(
             {
               id: raw.id,
-              table_id: tableId,
-              customer_name: raw.customer_name,
-              customer_phone: raw.customer_phone,
-              slot_start: startTime,
-              slot_end: plannedEnd,
+              tableId,
+              source: raw.source,
+              slotStart: startTime,
+              slotEnd: plannedEnd,
               status: raw.status,
-              reference: raw.ref_code,
-            } as never,
-            dateOffsetFor(startTime),
+            },
+            academyDateOffset(startTime),
           );
         });
-        if (mounted) setBookings(next);
+        if (mounted) {
+          setBookings(next);
+          clearExtensionTimer();
+          if (selectedDateOffset === 0) {
+            const nextWalkInEnd = (payload.sessions ?? [])
+              .filter(
+                (session): session is Record<string, unknown> & { plannedEnd: string } =>
+                  session.source === "WALKIN" &&
+                  session.status === "ONGOING" &&
+                  typeof session.plannedEnd === "string",
+              )
+              .map((session) => new Date(session.plannedEnd).getTime())
+              .filter((end) => end > Date.now())
+              .sort((a, b) => a - b)[0];
+            if (nextWalkInEnd) {
+              const msUntilEnd = nextWalkInEnd - Date.now();
+              extensionTimer.current = setTimeout(() => void load(), msUntilEnd + 100);
+            }
+          }
+        }
       } catch (reason) {
         if (mounted) {
           setError(reason instanceof Error ? reason.message : "Unable to load booking data");
@@ -88,6 +101,7 @@ export function useLiveBookings(selectedDateOffset = 0) {
       .subscribe();
     return () => {
       mounted = false;
+      clearExtensionTimer();
       void channel.unsubscribe();
     };
   }, [selectedDateOffset]);

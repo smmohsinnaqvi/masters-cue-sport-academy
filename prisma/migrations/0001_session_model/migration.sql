@@ -51,11 +51,3 @@ ALTER TABLE "sessions"
 ALTER TABLE "sessions"
   ADD CONSTRAINT "sessions_created_by_id_fkey"
   FOREIGN KEY ("created_by_id") REFERENCES "supervisors"("id") ON DELETE SET NULL ON UPDATE CASCADE;
-
-ALTER TABLE "sessions"
-  ADD CONSTRAINT "no_overlapping_sessions"
-  EXCLUDE USING gist (
-    "table_id" WITH =,
-    tstzrange("start_time", "planned_end" + interval '10 minutes') WITH &&
-  )
-  WHERE ("status" IN ('HELD', 'CONFIRMED', 'ONGOING'));

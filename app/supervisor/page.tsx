@@ -8,11 +8,13 @@ import { RoleGate } from "@/components/auth/role-gate";
 import {
   cancelSessionAction,
   createWalkInSessionAction,
+  endOnlineBookingAction,
   endSessionAction,
   getOperationsSnapshotAction,
   updateWalkInSessionAction,
 } from "@/actions/operations-actions";
-import { updateBookingStatusAction } from "@/actions/booking-actions";
+import { recordOnlinePaymentAction, updateBookingStatusAction } from "@/actions/booking-actions";
+import { logoutAction } from "@/actions/auth-actions";
 import { SiteHeader } from "@/components/layout/site-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -29,9 +31,9 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import type { Table } from "@/data/mock-data";
-import { clearSession } from "@/lib/auth";
+import type { Table } from "@/types/operations";
 import { supabase } from "@/lib/supabase";
+import { useSessionPages, type SessionPageRow } from "@/hooks/useSessionPages";
 
 type EntryStatus = "live" | "booked" | "completed" | "cancelled" | "no-show" | "expired";
 type Entry = {
@@ -41,6 +43,7 @@ type Entry = {
   tableName: string;
   tableType: Table["type"];
   status: EntryStatus;
+  statusLabel: string;
   playerOne: string;
   playerTwo: string;
   startTime: string;
@@ -55,7 +58,9 @@ type Booking = {
   customerName: string;
   slotStart: string;
   slotEnd: string;
-  status: "HELD" | "CONFIRMED" | "CANCELLED" | "NO_SHOW" | "EXPIRED";
+  status: "HELD" | "CONFIRMED" | "ONGOING" | "COMPLETED" | "CANCELLED" | "NO_SHOW" | "EXPIRED";
+  amount: number;
+  paymentStatus: string;
   verified: boolean;
   table?: { shortName: string; type: Table["type"] };
 };
@@ -70,95 +75,102 @@ const emptyForm = {
 function time(value: Date | string | null) {
   if (!value) return "";
   return new Date(value).toLocaleTimeString([], {
+    timeZone: "Asia/Kolkata",
     hour: "2-digit",
     minute: "2-digit",
     hour12: false,
   });
 }
 
-function entriesFromSnapshot(snapshot: Snapshot): Entry[] {
-  return snapshot.flatMap((table) =>
-    table.sessions.map((session) => ({
-      id: session.id,
-      sessionId: session.id,
-      tableId: table.id,
-      tableName: table.name,
-      tableType: table.type,
-      status:
-        session.status === "ONGOING"
-          ? "live"
-          : session.status === "CONFIRMED" || session.status === "HELD"
-            ? "booked"
-            : session.status === "NO_SHOW"
-              ? "no-show"
-              : session.status === "CANCELLED"
-                ? "cancelled"
-                : session.status === "EXPIRED"
-                  ? "expired"
-                  : "completed",
-      playerOne:
-        session.source === "WALKIN" &&
-        Array.isArray(session.players) &&
-        session.players[0] &&
-        typeof session.players[0] === "object" &&
-        "name" in session.players[0]
-          ? String(session.players[0].name)
-          : (session.customerName ?? "Walk-in"),
-      playerTwo:
-        session.source === "WALKIN" &&
-        Array.isArray(session.players) &&
-        session.players[1] &&
-        typeof session.players[1] === "object" &&
-        "name" in session.players[1]
-          ? String(session.players[1].name)
-          : session.source === "ONLINE"
-            ? (session.customerPhone ?? "")
-            : "Opponent",
-      startTime: time(session.actualStart ?? session.startTime),
-      endTime: time(session.actualEnd ?? session.plannedEnd),
-      payment: session.paymentStatus,
-      amount: session.amount ?? 0,
-      source: session.source,
-    })),
-  );
+function playerName(players: unknown, index: number, fallback: string) {
+  if (!Array.isArray(players)) return fallback;
+  const player = players[index];
+  if (!player || typeof player !== "object" || !("name" in player)) return fallback;
+  return String(player.name);
 }
 
-function bookingsFromSnapshot(snapshot: Snapshot): Booking[] {
-  return snapshot.flatMap((table) =>
-    table.sessions
-      .filter((session) => session.source === "ONLINE")
-      .map((booking) => ({
-        id: booking.id,
-        tableId: booking.tableId,
-        customerName: booking.customerName ?? "Guest",
-        slotStart: booking.startTime.toISOString(),
-        slotEnd: booking.plannedEnd.toISOString(),
-        status:
-          booking.status === "HELD"
-            ? "HELD"
-            : booking.status === "CONFIRMED"
-              ? "CONFIRMED"
-              : booking.status === "NO_SHOW"
-                ? "NO_SHOW"
-                : booking.status === "EXPIRED"
-                  ? "EXPIRED"
-                  : "CANCELLED",
-        verified: booking.status === "CONFIRMED",
-        table: { shortName: table.name, type: table.type },
-      })),
-  );
+function entryFromPage(session: SessionPageRow): Entry {
+  return {
+    id: session.id,
+    sessionId: session.id,
+    tableId: session.tableId,
+    tableName: session.table.name,
+    tableType: session.table.type,
+    status:
+      session.status === "ONGOING"
+        ? "live"
+        : session.status === "CONFIRMED" || session.status === "HELD"
+          ? "booked"
+          : session.status === "NO_SHOW"
+            ? "no-show"
+            : session.status === "CANCELLED"
+              ? "cancelled"
+              : session.status === "EXPIRED"
+                ? "expired"
+                : "completed",
+    statusLabel:
+      session.source === "MAINTENANCE" && session.status !== "CANCELLED"
+        ? "Maintenance"
+        : session.status === "HELD"
+          ? "Held"
+          : session.status === "CONFIRMED"
+            ? "Booked"
+            : session.status === "ONGOING"
+              ? "In use"
+              : session.status === "COMPLETED"
+                ? "Completed"
+                : session.status === "CANCELLED"
+                  ? "Cancelled"
+                  : session.status === "NO_SHOW"
+                    ? "No-show"
+                    : "Expired",
+    playerOne:
+      session.source === "WALKIN"
+        ? playerName(session.players, 0, "Walk-in")
+        : (session.customerName ?? "Guest"),
+    playerTwo:
+      session.source === "WALKIN"
+        ? playerName(session.players, 1, "Opponent")
+        : (session.customerPhone ?? ""),
+    startTime: time(session.actualStart ?? session.startTime),
+    endTime: time(session.source === "WALKIN" ? session.actualEnd : session.plannedEnd),
+    payment: session.paymentStatus,
+    amount: session.amount ?? 0,
+    source: session.source,
+  };
+}
+
+function bookingFromPage(session: SessionPageRow): Booking {
+  return {
+    id: session.id,
+    tableId: session.tableId,
+    customerName: session.customerName ?? "Guest",
+    slotStart: session.startTime,
+    slotEnd: session.plannedEnd,
+    status: session.status,
+    verified: session.status === "CONFIRMED",
+    amount: session.amount ?? 0,
+    paymentStatus: session.paymentStatus,
+    table: { shortName: session.table.name, type: session.table.type },
+  };
 }
 
 export default function SupervisorPage() {
   const router = useRouter();
   const [snapshot, setSnapshot] = useState<Snapshot>([]);
-  const [bookings, setBookings] = useState<Booking[]>([]);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const ledgerPage = useSessionPages("ledger", refreshKey);
+  const bookingsPage = useSessionPages("bookings", refreshKey);
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Entry | null>(null);
   const [form, setForm] = useState(emptyForm);
   const [endSession, setEndSession] = useState<{
     sessionId: string;
     loserName: string;
+    paymentMethod: "CASH" | "UPI" | "CARD";
+  } | null>(null);
+  const [paymentEntry, setPaymentEntry] = useState<{
+    sessionId: string;
     paymentMethod: "CASH" | "UPI" | "CARD";
   } | null>(null);
   const [confirm, setConfirm] = useState<{
@@ -171,7 +183,7 @@ export default function SupervisorPage() {
   const refresh = useCallback(async () => {
     const next = await getOperationsSnapshotAction();
     setSnapshot(next);
-    setBookings(bookingsFromSnapshot(next));
+    setRefreshKey((value) => value + 1);
   }, []);
 
   useEffect(() => {
@@ -187,11 +199,6 @@ export default function SupervisorPage() {
       )
       .on(
         "postgres_changes",
-        { event: "*", schema: "public", table: "sessions" },
-        () => void refresh(),
-      )
-      .on(
-        "postgres_changes",
         { event: "*", schema: "public", table: "tables" },
         () => void refresh(),
       )
@@ -200,11 +207,19 @@ export default function SupervisorPage() {
   }, [refresh]);
 
   const tables = useMemo(() => snapshot, [snapshot]);
-  const entries = entriesFromSnapshot(tables);
-  const liveCount = entries.filter((entry) => entry.status === "live").length;
-  const bookedCount = bookings.filter(
-    (booking) => booking.status === "HELD" || booking.status === "CONFIRMED",
+  const entries = ledgerPage.items.map(entryFromPage);
+  const bookings = bookingsPage.items.map(bookingFromPage);
+  const activeSessions = tables.flatMap((table) => table.sessions);
+  const liveCount = activeSessions.filter((session) => session.status === "ONGOING").length;
+  const bookedCount = activeSessions.filter(
+    (session) =>
+      session.source === "ONLINE" && (session.status === "HELD" || session.status === "CONFIRMED"),
   ).length;
+  const busyTableCount = new Set(
+    activeSessions
+      .filter((session) => session.status !== "HELD" || session.source === "ONLINE")
+      .map((session) => session.tableId),
+  ).size;
 
   function openCreate() {
     setEditing(null);
@@ -274,8 +289,8 @@ export default function SupervisorPage() {
               </Button>
               <Button
                 variant="outline"
-                onClick={() => {
-                  clearSession();
+                onClick={async () => {
+                  await logoutAction();
                   router.replace("/login?role=supervisor");
                 }}
                 className="min-h-11 gap-2"
@@ -292,7 +307,7 @@ export default function SupervisorPage() {
           <div className="mt-6 grid gap-4 md:grid-cols-3">
             <Metric label="Live tables" value={liveCount} />
             <Metric label="Booked slots" value={bookedCount} />
-            <Metric label="Open tables" value={Math.max(0, snapshot.length - liveCount)} />
+            <Metric label="Open tables" value={Math.max(0, snapshot.length - busyTableCount)} />
           </div>
 
           {showForm ? (
@@ -361,7 +376,7 @@ export default function SupervisorPage() {
           <div className="mt-6 grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
             <Card className="border-border bg-surface">
               <CardHeader>
-                <CardTitle>Register ledger</CardTitle>
+                <CardTitle>Ledger</CardTitle>
               </CardHeader>
               <CardContent className="overflow-hidden p-0">
                 <div className="overflow-x-auto">
@@ -374,6 +389,7 @@ export default function SupervisorPage() {
                           "Status",
                           "Start",
                           "End",
+                          "Type",
                           "Payment",
                           "Amount",
                           "Actions",
@@ -387,7 +403,7 @@ export default function SupervisorPage() {
                     <tbody>
                       {entries.length === 0 ? (
                         <tr>
-                          <td colSpan={8} className="px-4 py-10 text-center text-muted-foreground">
+                          <td colSpan={9} className="px-4 py-10 text-center text-muted-foreground">
                             No session records yet.
                           </td>
                         </tr>
@@ -401,11 +417,18 @@ export default function SupervisorPage() {
                             </td>
                             <td className="px-4 py-3">
                               <Badge variant="outline" className="border-felt/40 text-felt">
-                                {entry.status}
+                                {entry.statusLabel}
                               </Badge>
                             </td>
                             <td className="px-4 py-3">{entry.startTime}</td>
-                            <td className="px-4 py-3">{entry.endTime || "Open"}</td>
+                            <td className="px-4 py-3">{entry.endTime || "—"}</td>
+                            <td className="px-4 py-3">
+                              {entry.source === "ONLINE"
+                                ? "Online"
+                                : entry.source === "WALKIN"
+                                  ? "Walk-in"
+                                  : "Maintenance"}
+                            </td>
                             <td className="px-4 py-3">{entry.payment}</td>
                             <td className="px-4 py-3">
                               {entry.amount > 0 ? `₹${entry.amount.toFixed(2)}` : "—"}
@@ -438,6 +461,25 @@ export default function SupervisorPage() {
                                     </Button>
                                   </>
                                 ) : null}
+                                {entry.source === "ONLINE" && entry.status === "live" ? (
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={() =>
+                                      ask(
+                                        "Stop this booking?",
+                                        "The table will be released now. The reserved-slot amount remains on the ledger.",
+                                        async () => {
+                                          await endOnlineBookingAction(entry.sessionId!);
+                                          await refresh();
+                                        },
+                                      )
+                                    }
+                                    aria-label="Stop online booking"
+                                  >
+                                    <Square className="h-4 w-4" />
+                                  </Button>
+                                ) : null}
                                 {entry.status === "booked" ? (
                                   <Button
                                     variant="ghost"
@@ -465,13 +507,23 @@ export default function SupervisorPage() {
                     </tbody>
                   </table>
                 </div>
+                {ledgerPage.error ? (
+                  <p className="p-4 text-sm text-destructive">{ledgerPage.error}</p>
+                ) : null}
+                {ledgerPage.loading ? (
+                  <p className="p-4 text-center text-sm text-muted-foreground">Loading ledger…</p>
+                ) : null}
+                {ledgerPage.hasMore ? <div ref={ledgerPage.sentinelRef} className="h-4" /> : null}
               </CardContent>
             </Card>
             <Card className="border-border bg-surface">
               <CardHeader>
-                <CardTitle>Booking requests</CardTitle>
+                <CardTitle>Bookings</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
+                <p className="text-sm text-muted-foreground">
+                  Pending, upcoming, in-progress, and past online bookings.
+                </p>
                 {bookings.length === 0 ? (
                   <div className="rounded-lg border border-dashed border-border p-6 text-sm text-muted-foreground">
                     No online booking requests.
@@ -488,6 +540,9 @@ export default function SupervisorPage() {
                           <p className="text-xs text-muted-foreground">
                             {booking.table?.shortName ?? booking.tableId} ·{" "}
                             {time(booking.slotStart)}–{time(booking.slotEnd)}
+                          </p>
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            Reserved charge: ₹{booking.amount.toFixed(2)}
                           </p>
                         </div>
                         <Badge variant="outline">{booking.status}</Badge>
@@ -510,7 +565,7 @@ export default function SupervisorPage() {
                             Confirm
                           </Button>
                         ) : null}
-                        {booking.status === "CONFIRMED" ? (
+                        {booking.status === "CONFIRMED" || booking.status === "ONGOING" ? (
                           <Button
                             size="sm"
                             variant="outline"
@@ -528,9 +583,7 @@ export default function SupervisorPage() {
                             No-show
                           </Button>
                         ) : null}
-                        {booking.status !== "NO_SHOW" &&
-                        booking.status !== "CANCELLED" &&
-                        booking.status !== "EXPIRED" ? (
+                        {booking.status === "HELD" || booking.status === "CONFIRMED" ? (
                           <Button
                             size="sm"
                             variant="outline"
@@ -548,10 +601,34 @@ export default function SupervisorPage() {
                             <X className="mr-1 h-4 w-4" /> Cancel
                           </Button>
                         ) : null}
+                        {booking.paymentStatus === "UNPAID" &&
+                        booking.amount > 0 &&
+                        ["ONGOING", "COMPLETED"].includes(booking.status) ? (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() =>
+                              setPaymentEntry({ sessionId: booking.id, paymentMethod: "CASH" })
+                            }
+                          >
+                            Record payment
+                          </Button>
+                        ) : null}
                       </div>
                     </div>
                   ))
                 )}
+                {bookingsPage.error ? (
+                  <p className="text-sm text-destructive">{bookingsPage.error}</p>
+                ) : null}
+                {bookingsPage.loading ? (
+                  <p className="text-center text-sm text-muted-foreground">
+                    Loading booking history…
+                  </p>
+                ) : null}
+                {bookingsPage.hasMore ? (
+                  <div ref={bookingsPage.sentinelRef} className="h-4" />
+                ) : null}
               </CardContent>
             </Card>
           </div>
@@ -654,6 +731,67 @@ export default function SupervisorPage() {
                 }}
               >
                 Close and record payment
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+        <AlertDialog
+          open={Boolean(paymentEntry)}
+          onOpenChange={(open) => {
+            if (!open) setPaymentEntry(null);
+          }}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Record booking payment</AlertDialogTitle>
+              <AlertDialogDescription>
+                Record the reserved booking charge as paid. This updates the payment status in the
+                ledger.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <div className="space-y-2 py-2">
+              <Label htmlFor="booking-payment-method">Payment method</Label>
+              <select
+                id="booking-payment-method"
+                value={paymentEntry?.paymentMethod ?? "CASH"}
+                onChange={(event) =>
+                  setPaymentEntry((current) =>
+                    current
+                      ? {
+                          ...current,
+                          paymentMethod: event.target.value as "CASH" | "UPI" | "CARD",
+                        }
+                      : current,
+                  )
+                }
+                className="flex min-h-11 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+              >
+                <option value="CASH">Cash</option>
+                <option value="UPI">UPI</option>
+                <option value="CARD">Card</option>
+              </select>
+            </div>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Go back</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={(event) => {
+                  event.preventDefault();
+                  if (!paymentEntry) return;
+                  const current = paymentEntry;
+                  void recordOnlinePaymentAction(current.sessionId, current.paymentMethod).then(
+                    async () => {
+                      setPaymentEntry(null);
+                      setError(null);
+                      await refresh();
+                    },
+                    (reason) =>
+                      setError(
+                        reason instanceof Error ? reason.message : "Unable to record payment",
+                      ),
+                  );
+                }}
+              >
+                Record payment
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>

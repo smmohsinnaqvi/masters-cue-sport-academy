@@ -18,7 +18,7 @@ export function useLiveTables() {
         const response = await fetch("/api/tables", { cache: "no-store" });
         const payload = (await response.json()) as { tables?: unknown[]; error?: string };
         if (!response.ok) throw new Error(payload.error ?? "Unable to load table data");
-        const nextTables = (payload.tables ?? []).map((row) => normalizeTable(row as never));
+        const nextTables = (payload.tables ?? []).map(normalizeTable);
 
         if (isMounted) {
           setTables(nextTables);

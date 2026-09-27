@@ -8,7 +8,7 @@ import {
   Clock3,
   Sparkles,
 } from "lucide-react";
-import { useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -41,7 +41,12 @@ import {
   type DaySegment,
 } from "@/lib/booking";
 import { createOnlineBookingAction } from "@/actions/operations-actions";
-import type { BookingRecord, Table } from "@/data/mock-data";
+import type { BookingRecord, Table } from "@/types/operations";
+import {
+  academyDateKeyForOffset,
+  academyDateTimeToUtc,
+  academyMinutesOfDay,
+} from "@/lib/academy-time";
 import { useLiveBookings } from "@/hooks/useLiveBookings";
 import { useLiveTables } from "@/hooks/useLiveTables";
 import { cn } from "@/lib/utils";
@@ -63,7 +68,7 @@ export function BookingEngine() {
   const { bookings, loading: bookingsLoading, error: bookingsError } = useLiveBookings(dateOffset);
   const [duration, setDuration] = useState(120);
   const [tableType, setTableType] = useState<"ANY" | "SNOOKER" | "POOL">("ANY");
-  const [tableId, setTableId] = useState("snk-1");
+  const [tableId, setTableId] = useState("");
   const [timeInput, setTimeInput] = useState("18:00");
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
@@ -73,6 +78,12 @@ export function BookingEngine() {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const table = tables.find((t) => t.id === tableId) ?? tables[0] ?? null;
   const selectedDate = dateOptions.find((d) => d.offset === dateOffset) ?? dateOptions[0]!;
+
+  useEffect(() => {
+    if (tables.length > 0 && !tables.some((tableItem) => tableItem.id === tableId)) {
+      setTableId(tables[0]!.id);
+    }
+  }, [tableId, tables]);
 
   const filteredTables = useMemo(
     () => tables.filter((tableItem) => tableType === "ANY" || tableItem.type === tableType),
@@ -144,10 +155,7 @@ export function BookingEngine() {
   }
 
   async function confirmBooking() {
-    const start = new Date();
-    start.setDate(start.getDate() + dateOffset);
-    const [hours, minutes] = timeInput.split(":").map(Number);
-    start.setHours(hours, minutes, 0, 0);
+    const start = academyDateTimeToUtc(academyDateKeyForOffset(dateOffset), timeInput);
     const end = new Date(start.getTime() + duration * 60_000);
 
     try {
@@ -302,12 +310,19 @@ export function BookingEngine() {
                   (booking) =>
                     booking.tableId === tableOption.id && booking.dateOffset === dateOffset,
                 );
-                const nowMinutes = new Date().getHours() * 60 + new Date().getMinutes();
-                const activeBooking =
+                const activeBooking = conflictFor(
+                  tableOption.id,
+                  dateOffset,
+                  requested,
+                  duration,
+                  bookings,
+                );
+                const currentBooking =
                   dateOffset === 0
-                    ? tableBookings.find(
-                        (booking) => booking.start <= nowMinutes && nowMinutes < booking.end,
-                      )
+                    ? tableBookings.find((booking) => {
+                        const nowMinutes = academyMinutesOfDay(new Date());
+                        return booking.start <= nowMinutes && nowMinutes < booking.end;
+                      })
                     : null;
                 const statusLabel = activeBooking
                   ? activeBooking.status === "ONGOING"
@@ -317,9 +332,7 @@ export function BookingEngine() {
                       : activeBooking.status === "MAINTENANCE"
                         ? "Maintenance"
                         : "Booked"
-                  : freeStartsCount > 0
-                    ? "Available"
-                    : "Booked";
+                  : "Available";
                 const statusTone =
                   statusLabel === "Available"
                     ? "bg-felt/10 text-felt"
@@ -362,9 +375,11 @@ export function BookingEngine() {
                       <span className="font-semibold text-foreground">₹{price}</span>
                     </div>
                     <p className="mt-2 text-xs text-muted-foreground">
-                      {freeStartsCount > 0
-                        ? `${freeStartsCount} start${freeStartsCount === 1 ? "" : "s"} available for ${duration / 60} hr`
-                        : "No matching times for this duration"}
+                      {currentBooking?.status === "ONGOING"
+                        ? "In use now"
+                        : activeBooking
+                          ? `Unavailable ${formatTime(requested)}–${formatTime(requested + duration)}`
+                          : `${freeStartsCount} other start${freeStartsCount === 1 ? "" : "s"} available`}
                     </p>
                   </button>
                 );
@@ -467,7 +482,7 @@ export function BookingEngine() {
                       }}
                       className="min-h-9 border-border bg-surface/80"
                     >
-                      {alternativeTable.shortName} · {formatTime(start)}
+                      {alternativeTable.name} · {formatTime(start)}
                     </Button>
                   ))}
                 </div>
@@ -557,7 +572,7 @@ export function BookingEngine() {
                   {formatTime(requested)} – {formatTime(requested + duration)}
                 </span>
                 <span className="inline-flex min-h-9 items-center rounded-md border border-border bg-background px-3">
-                  {table.size} • {table.type}
+                  {table.type}
                 </span>
                 <span className="inline-flex min-h-9 items-center rounded-md border border-border bg-background px-3 text-felt">
                   {formatPrice(price)}

@@ -85,39 +85,19 @@ npm run dev
 
 Open <http://localhost:3000>.
 
-## Login
+## Staff login
 
-The current login screen uses local demo credentials stored in browser
-`localStorage`. It is not yet backed by Supabase Auth.
+Staff login uses Supabase Auth. Create each staff account in Supabase Auth and
+set its **app metadata** role to `admin` or `supervisor` (for example,
+`{"role":"admin"}`). Do not set authorization roles in user-editable metadata.
+The application validates the role from the authenticated Supabase user on the
+server; browser storage is not used as an authentication source.
 
 Open <http://localhost:3000/login>.
 
-### Admin
-
-```text
-Email: admin@masterscue.com
-Password: admin123
-```
-
-The admin can open:
-
-- `/admin`
-- `/admin/settings`
-- `/supervisor`
-
-### Supervisor
-
-```text
-Email: supervisor@masterscue.com
-Password: supervisor123
-```
-
-The supervisor can open:
-
-- `/supervisor`
-
-These credentials are for local testing only. Replace the demo authentication
-with Supabase Auth before deploying the application to production.
+Administrators can open `/admin`, its settings routes, and `/supervisor`.
+Supervisors can open `/supervisor`. Ledger APIs and operational server actions
+enforce staff authorization independently of the client-side route gate.
 
 ## Database model
 
@@ -149,8 +129,9 @@ Active sessions (`HELD`, `CONFIRMED`, and `ONGOING`) are used when calculating
 availability. Completed, cancelled, no-show, and expired sessions do not block
 new bookings.
 
-Online holds expire after five minutes. Walk-ins initially reserve a two-hour
-window and can extend in one-hour increments while they remain active.
+Online booking requests expire after 30 minutes unless staff confirm or decline
+them. Walk-ins reserve their table through closing time or the next booking,
+whichever comes first.
 
 The database also contains a PostgreSQL exclusion constraint to prevent
 overlapping active sessions on the same table. The SQL is in:
@@ -159,29 +140,39 @@ overlapping active sessions on the same table. The SQL is in:
 prisma/migrations/0002_session_constraint/migration.sql
 ```
 
+Online bookings snapshot the table rate and reserved-slot charge when created.
+The charge is visible in the ledger immediately; payment remains unpaid until
+staff records it. Confirmed online bookings transition to `ONGOING` at their
+start time and to `COMPLETED` at their planned end. Staff can stop an ongoing
+booking early; its reserved-slot charge remains unchanged.
+
+The supervisor Ledger and Bookings lists read from `Session` using independent
+cursor-paginated queries. They load further pages as the user scrolls; no
+duplicate ledger or bookings database table is maintained.
+
 ## Important routes
 
 ### Pages
 
-| Route | Purpose |
-| --- | --- |
-| `/` | Public academy landing page |
-| `/booking` | Customer booking flow |
-| `/login` | Admin and supervisor login |
-| `/admin` | Admin dashboard |
-| `/admin/settings` | Admin settings navigation |
-| `/admin/settings/tournaments` | Tournament management |
-| `/admin/settings/cafeteria` | Cafeteria item management |
-| `/admin/settings/rates` | Hourly rate management |
-| `/supervisor` | Supervisor ledger and operations |
+| Route                         | Purpose                          |
+| ----------------------------- | -------------------------------- |
+| `/`                           | Public academy landing page      |
+| `/booking`                    | Customer booking flow            |
+| `/login`                      | Admin and supervisor login       |
+| `/admin`                      | Admin dashboard                  |
+| `/admin/settings`             | Admin settings navigation        |
+| `/admin/settings/tournaments` | Tournament management            |
+| `/admin/settings/cafeteria`   | Cafeteria item management        |
+| `/admin/settings/rates`       | Hourly rate management           |
+| `/supervisor`                 | Supervisor ledger and operations |
 
 ### API routes
 
-| Route | Purpose |
-| --- | --- |
-| `GET /api/tables/availability` | Read active sessions for a date/table |
-| `GET /api/ledger` | Read sessions for the ledger date |
-| `POST /api/cron/cleanup` | Expire holds and extend active walk-ins |
+| Route                                           | Purpose                                                               |
+| ----------------------------------------------- | --------------------------------------------------------------------- |
+| `GET /api/tables/availability`                  | Read active sessions for a date/table                                 |
+| `GET /api/ledger?view=ledger\|bookings&cursor=` | Cursor-paginated ledger or online booking history                     |
+| `GET /api/cron/cleanup`                         | Reconcile booking start/end, expire holds, and extend active walk-ins |
 
 The cleanup endpoint requires:
 
@@ -217,6 +208,12 @@ npx prisma db pull
 Use `prisma db push --accept-data-loss` only when you understand and accept
 the columns or tables Prisma may remove.
 
+The connected Supabase database was previously synchronized with `prisma db
+push`. Its existing schema was introspected, the additive schema updates were
+synced, and its migration history was baselined against that verified schema.
+`prisma migrate status` should report the database as up to date; use committed
+migrations for future production schema changes.
+
 ## Validation
 
 Run a production build:
@@ -244,7 +241,7 @@ app/
   admin/                    Admin dashboard and settings routes
   api/                      Availability, ledger, and cleanup handlers
   booking/                  Customer booking page
-  login/                    Local development login
+  login/                    Supabase Auth staff login
   supervisor/               Supervisor ledger and operations
 prisma/
   schema.prisma             Authoritative Prisma schema
@@ -261,14 +258,15 @@ src/lib/                    Prisma, Supabase, auth, and shared helpers
 
 Before production deployment:
 
-1. Replace local demo authentication with Supabase Auth and server-side
-   authorization.
-2. Configure a scheduler or Supabase Cron to call
-   `POST /api/cron/cleanup`.
+1. Set Supabase Auth `app_metadata.role` for each staff user and verify
+   server-side access controls before inviting staff.
+2. Deploy to Vercel Pro/Enterprise for the configured per-minute Cron in
+   `vercel.json`. Vercel Hobby only supports daily Cron scheduling, which is
+   not sufficiently timely for booking start/end transitions. Set `CRON_SECRET`
+   in the Vercel production environment.
 3. Keep `SUPABASE_SERVICE_ROLE_KEY`, `DIRECT_URL`, and `CRON_SECRET` server
    only.
 4. Verify the PostgreSQL exclusion constraint exists in the target database.
 5. Configure Supabase Realtime for the `sessions` table.
 6. Run the production build and test online holds, walk-ins, cancellations,
    overlap rejection, billing, and realtime availability updates.
-

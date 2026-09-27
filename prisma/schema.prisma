@@ -51,6 +51,32 @@ model Supervisor {
   @@map("supervisors")
 }
 
+model Tournament {
+  id        String   @id @default(cuid())
+  title     String
+  date      DateTime @db.Date
+  entryFee  Int      @map("entry_fee")
+  prizePool Int      @map("prize_pool")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([date])
+  @@map("tournaments")
+}
+
+model CafeteriaItem {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  note      String?
+  price     Int
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([isActive, name])
+  @@map("cafeteria_items")
+}
+
 model Session {
   id              String        @id @default(cuid())
   table           Table         @relation(fields: [tableId], references: [id])
@@ -79,5 +105,7 @@ model Session {
   @@index([tableId, status])
   @@index([tableId, startTime, plannedEnd])
   @@index([status, holdExpiresAt])
+  @@index([createdAt(sort: Desc), id(sort: Desc)])
+  @@index([source, createdAt(sort: Desc), id(sort: Desc)])
   @@map("sessions")
 }

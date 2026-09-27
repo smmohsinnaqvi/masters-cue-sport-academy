@@ -1,4 +1,4 @@
-import type { BookingRecord, Table } from "@/data/mock-data";
+import type { BookingRecord, Table } from "@/types/operations";
 
 export const OPEN_START = 10 * 60; // 10:00
 export const OPEN_END = 23 * 60; // 23:00

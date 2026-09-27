@@ -1,18 +1,27 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { academyDateKey, academyDayUtcBounds } from "@/lib/academy-time";
+import { reconcileWalkInExtensions } from "@/lib/session-reconciliation";
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
   const date = url.searchParams.get("date");
   const tableId = url.searchParams.get("tableId");
-  const start = date ? new Date(`${date}T00:00:00.000`) : new Date();
-  const end = new Date(start);
-  end.setDate(end.getDate() + (date ? 1 : 7));
-
-  if (Number.isNaN(start.getTime())) {
+  if (date && !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
     return NextResponse.json({ error: "Invalid date" }, { status: 400 });
   }
 
+  let bounds: { start: Date; end: Date };
+  try {
+    bounds = date
+      ? academyDayUtcBounds(date)
+      : { start: new Date(), end: new Date(Date.now() + 7 * 86_400_000) };
+  } catch {
+    return NextResponse.json({ error: "Invalid date" }, { status: 400 });
+  }
+  if (date === academyDateKey()) {
+    await reconcileWalkInExtensions();
+  }
   const sessions = await prisma.session.findMany({
     where: {
       ...(tableId ? { tableId } : {}),
@@ -20,8 +29,7 @@ export async function GET(request: Request) {
         { status: { in: ["CONFIRMED", "ONGOING"] } },
         { status: "HELD", holdExpiresAt: { gt: new Date() } },
       ],
-      startTime: { lt: end },
-      plannedEnd: { gt: start },
+      AND: [{ startTime: { lt: bounds.end } }, { plannedEnd: { gt: bounds.start } }],
     },
     select: {
       id: true,
@@ -34,5 +42,5 @@ export async function GET(request: Request) {
     orderBy: { startTime: "asc" },
   });
 
-  return NextResponse.json({ sessions });
+  return NextResponse.json({ sessions }, { headers: { "Cache-Control": "no-store, max-age=0" } });
 }

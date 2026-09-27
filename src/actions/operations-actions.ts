@@ -4,9 +4,11 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import {
   DEFAULT_WALKIN_BLOCK_MINUTES,
-  HOLD_DURATION_MINUTES,
   ONLINE_REQUEST_EXPIRY_MINUTES,
 } from "@/lib/operations-constants";
+import { academyDateKey, academyDateTimeToUtc, academyMinutesOfDay } from "@/lib/academy-time";
+import { reconcileSessionLifecycle } from "@/lib/session-reconciliation";
+import { requireAcademyRole } from "@/lib/supabase-auth-server";
 
 const ACTIVE_STATUSES = ["HELD", "CONFIRMED", "ONGOING"] as const;
 
@@ -28,58 +30,6 @@ function conflictError(error: unknown): never {
   throw error;
 }
 
-export async function createHoldAction(input: {
-  tableId: string;
-  startTime: Date | string;
-  durationMinutes: number;
-}) {
-  const startTime = date(input.startTime);
-  const plannedEnd = new Date(startTime.getTime() + input.durationMinutes * 60_000);
-  try {
-    return await prisma.session.create({
-      data: {
-        tableId: input.tableId,
-        source: "ONLINE",
-        status: "HELD",
-        startTime,
-        plannedEnd,
-        holdExpiresAt: new Date(Date.now() + HOLD_DURATION_MINUTES * 60_000),
-      },
-    });
-  } catch (error) {
-    return conflictError(error);
-  }
-}
-
-export async function confirmSessionAction(input: {
-  sessionId: string;
-  customerName: string;
-  customerPhone: string;
-}) {
-  const customerName = input.customerName.trim();
-  const customerPhone = input.customerPhone.trim();
-  if (!customerName || !customerPhone) throw new Error("Name and phone are required");
-
-  const result = await prisma.session.updateMany({
-    where: {
-      id: input.sessionId,
-      source: "ONLINE",
-      status: "HELD",
-      holdExpiresAt: { gt: new Date() },
-    },
-    data: {
-      status: "CONFIRMED",
-      customerName,
-      customerPhone,
-      refCode: `MCA-${Date.now().toString().slice(-6)}`,
-      holdExpiresAt: null,
-    },
-  });
-  if (result.count !== 1)
-    throw new Error("This booking request has expired or is no longer pending");
-  return prisma.session.findUniqueOrThrow({ where: { id: input.sessionId } });
-}
-
 export async function createOnlineBookingAction(input: {
   tableId: string;
   customerName: string;
@@ -95,12 +45,25 @@ export async function createOnlineBookingAction(input: {
   const endTime = date(input.slotEnd);
   const durationMinutes = Math.ceil((endTime.getTime() - startTime.getTime()) / 60_000);
   if (durationMinutes <= 0) throw new Error("Booking end time must be after start time");
+  const startMinute = academyMinutesOfDay(startTime);
+  const endMinute = academyMinutesOfDay(endTime);
+  if (
+    startTime <= new Date() ||
+    startMinute < 10 * 60 ||
+    endMinute > 23 * 60 ||
+    academyDateKey(startTime) !== academyDateKey(endTime)
+  ) {
+    throw new Error("Choose a future time within academy hours (10:00 AM–11:00 PM)");
+  }
+  const table = await prisma.table.findUnique({
+    where: { id: input.tableId },
+    select: { isActive: true, hourlyRate: true },
+  });
+  if (!table?.isActive) throw new Error("Table is not available");
+  const amount = Math.round((table.hourlyRate * durationMinutes) / 60);
 
   try {
-    await prisma.session.updateMany({
-      where: { status: "HELD", holdExpiresAt: { lt: new Date() } },
-      data: { status: "EXPIRED" },
-    });
+    await reconcileSessionLifecycle();
     return await prisma.session.create({
       data: {
         tableId: input.tableId,
@@ -113,6 +76,8 @@ export async function createOnlineBookingAction(input: {
         refCode: `MCA-${Date.now().toString().slice(-6)}`,
         holdExpiresAt: new Date(Date.now() + ONLINE_REQUEST_EXPIRY_MINUTES * 60_000),
         durationMinutes,
+        rateSnapshot: table.hourlyRate,
+        amount,
         paymentStatus: "UNPAID",
       },
     });
@@ -126,22 +91,45 @@ export async function createWalkInSessionAction(input: {
   customerName: string;
   playerTwoName?: string | null;
 }) {
+  await requireAcademyRole("supervisor");
+  const customerName = input.customerName.trim();
+  if (!customerName) throw new Error("Customer name is required");
   const now = new Date();
   const table = await prisma.table.findUnique({ where: { id: input.tableId } });
   if (!table || !table.isActive) throw new Error("Table is not available");
 
   try {
+    const closingTime = academyDateTimeToUtc(academyDateKey(now), "23:00");
+    const initialEnd = new Date(now.getTime() + DEFAULT_WALKIN_BLOCK_MINUTES * 60_000);
+    const nextBooking = await prisma.session.findFirst({
+      where: {
+        tableId: input.tableId,
+        source: "ONLINE",
+        status: { in: ["HELD", "CONFIRMED"] },
+        startTime: { gt: now },
+        OR: [{ status: "CONFIRMED" }, { status: "HELD", holdExpiresAt: { gt: now } }],
+      },
+      orderBy: { startTime: "asc" },
+      select: { startTime: true },
+    });
+    const plannedEnd = nextBooking
+      ? new Date(
+          Math.min(initialEnd.getTime(), closingTime.getTime(), nextBooking.startTime.getTime()),
+        )
+      : new Date(Math.min(initialEnd.getTime(), closingTime.getTime()));
+    if (plannedEnd <= now) throw new Error("The academy is closed for walk-ins");
+
     return await prisma.session.create({
       data: {
         tableId: input.tableId,
         source: "WALKIN",
         status: "ONGOING",
         startTime: now,
-        plannedEnd: new Date(now.getTime() + DEFAULT_WALKIN_BLOCK_MINUTES * 60_000),
+        plannedEnd,
         actualStart: now,
         rateSnapshot: table.hourlyRate,
         players: [
-          { name: input.customerName.trim() },
+          { name: customerName },
           ...(input.playerTwoName?.trim() ? [{ name: input.playerTwoName.trim() }] : []),
         ],
         paymentStatus: "UNPAID",
@@ -157,6 +145,7 @@ export async function updateWalkInSessionAction(input: {
   customerName: string;
   playerTwoName?: string | null;
 }) {
+  await requireAcademyRole("supervisor");
   const customerName = input.customerName.trim();
   if (!customerName) throw new Error("Customer name is required");
   return prisma.session.update({
@@ -175,12 +164,15 @@ export async function endSessionAction(input: {
   loserName: string;
   paymentMethod: "CASH" | "UPI" | "CARD";
 }) {
+  await requireAcademyRole("supervisor");
   const loserName = input.loserName.trim();
   if (!loserName) throw new Error("Loser name is required before closing a walk-in");
 
   return prisma.$transaction(async (tx) => {
     const session = await tx.session.findUnique({ where: { id: input.sessionId } });
-    if (!session || session.status !== "ONGOING") throw new Error("Session is not active");
+    if (!session || session.source !== "WALKIN" || session.status !== "ONGOING") {
+      throw new Error("Walk-in session is not active");
+    }
     const actualEnd = new Date();
     const actualStart = session.actualStart ?? session.startTime;
     const durationMinutes = Math.max(
@@ -205,23 +197,48 @@ export async function endSessionAction(input: {
   });
 }
 
+export async function endOnlineBookingAction(sessionId: string) {
+  await requireAcademyRole("supervisor");
+  const actualEnd = new Date();
+  const result = await prisma.session.updateMany({
+    where: { id: sessionId, source: "ONLINE", status: "ONGOING" },
+    data: {
+      status: "COMPLETED",
+      actualEnd,
+      plannedEnd: actualEnd,
+    },
+  });
+  if (result.count !== 1) throw new Error("Online booking is not active");
+  return prisma.session.findUniqueOrThrow({ where: { id: sessionId } });
+}
+
 export async function cancelSessionAction(sessionId: string) {
-  return prisma.session.updateMany({
-    where: { id: sessionId, status: { in: [...ACTIVE_STATUSES] } },
+  await requireAcademyRole("supervisor");
+  const now = new Date();
+  const result = await prisma.session.updateMany({
+    where: {
+      id: sessionId,
+      source: "ONLINE",
+      OR: [{ status: "CONFIRMED" }, { status: "HELD", holdExpiresAt: { gt: now } }],
+    },
     data: { status: "CANCELLED" },
   });
+  if (result.count !== 1) {
+    throw new Error("Only a current or confirmed online booking can be cancelled");
+  }
 }
 
 export async function getOperationsSnapshotAction() {
-  await prisma.session.updateMany({
-    where: { status: "HELD", holdExpiresAt: { lt: new Date() } },
-    data: { status: "EXPIRED" },
-  });
+  await requireAcademyRole("supervisor");
+  await reconcileSessionLifecycle();
   return prisma.table.findMany({
     where: { isActive: true },
     orderBy: { name: "asc" },
     include: {
-      sessions: { orderBy: { startTime: "asc" } },
+      sessions: {
+        where: { status: { in: [...ACTIVE_STATUSES] } },
+        orderBy: { startTime: "asc" },
+      },
     },
   });
 }
