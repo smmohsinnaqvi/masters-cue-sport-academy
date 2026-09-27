@@ -36,22 +36,22 @@ export default async function AdminPage() {
   return (
     <>
       <SiteHeader />
-      <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
+      <main className="mx-auto max-w-6xl px-3 py-5 sm:px-6 sm:py-8 lg:px-8">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Admin</p>
-            <h1 className="mt-2 text-3xl font-bold">Academy dashboard</h1>
-            <p className="mt-2 text-sm text-muted-foreground">
+            <h1 className="mt-1 text-2xl font-bold sm:mt-2 sm:text-3xl">Academy dashboard</h1>
+            <p className="mt-2 max-w-xl text-sm text-muted-foreground">
               Current operations and academy settings.
             </p>
           </div>
-          <Button asChild variant="outline">
+          <Button asChild variant="outline" className="min-h-11 w-full sm:w-auto">
             <Link href="/supervisor">
               Open supervisor view <ArrowRight className="ml-2 h-4 w-4" />
             </Link>
           </Button>
         </div>
-        <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="mt-5 grid grid-cols-2 gap-2 sm:mt-8 sm:gap-4 lg:grid-cols-4">
           <Summary
             icon={CircleDollarSign}
             label="Payments today"
@@ -61,14 +61,14 @@ export default async function AdminPage() {
           <Summary icon={UserRoundCheck} label="Pending bookings" value={String(pendingBookings)} />
           <Summary icon={BarChart3} label="Active tables" value={String(activeTables)} />
         </div>
-        <Card className="mt-8 border-border bg-surface">
-          <CardContent className="p-6">
+        <Card className="mt-5 border-border bg-surface sm:mt-8">
+          <CardContent className="p-4 sm:p-6">
             <h2 className="text-lg font-semibold">Academy settings</h2>
             <p className="mt-2 max-w-xl text-sm text-muted-foreground">
               Manage tournaments, cafeteria items, and hourly rates. Changes are saved to the
               academy database.
             </p>
-            <Button asChild className="mt-5">
+            <Button asChild className="mt-5 min-h-11 w-full sm:w-auto">
               <Link href="/admin/settings">Open settings</Link>
             </Button>
           </CardContent>
@@ -89,10 +89,12 @@ function Summary({
 }) {
   return (
     <Card className="border-border bg-surface">
-      <CardContent className="p-5">
+      <CardContent className="p-3 sm:p-5">
         <Icon className="h-4 w-4 text-felt" />
-        <p className="mt-4 text-xs uppercase tracking-[0.16em] text-muted-foreground">{label}</p>
-        <p className="mt-2 text-2xl font-bold">{value}</p>
+        <p className="mt-3 line-clamp-2 text-[10px] uppercase tracking-[0.08em] text-muted-foreground sm:mt-4 sm:text-xs sm:tracking-[0.16em]">
+          {label}
+        </p>
+        <p className="mt-1 truncate text-xl font-bold sm:mt-2 sm:text-2xl">{value}</p>
       </CardContent>
     </Card>
   );

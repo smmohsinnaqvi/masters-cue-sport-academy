@@ -34,6 +34,7 @@ import { Label } from "@/components/ui/label";
 import type { Table } from "@/types/operations";
 import { supabase } from "@/lib/supabase";
 import { useSessionPages, type SessionPageRow } from "@/hooks/useSessionPages";
+import { cn } from "@/lib/utils";
 
 type EntryStatus = "live" | "booked" | "completed" | "cancelled" | "no-show" | "expired";
 type Entry = {
@@ -159,7 +160,14 @@ export default function SupervisorPage() {
   const router = useRouter();
   const [snapshot, setSnapshot] = useState<Snapshot>([]);
   const [refreshKey, setRefreshKey] = useState(0);
-  const ledgerPage = useSessionPages("ledger", refreshKey);
+  const [activeHistory, setActiveHistory] = useState<"ledger" | "bookings">("ledger");
+  const [ledgerFilters, setLedgerFilters] = useState({
+    date: "",
+    source: "",
+    status: "",
+    payment: "",
+  });
+  const ledgerPage = useSessionPages("ledger", refreshKey, ledgerFilters);
   const bookingsPage = useSessionPages("bookings", refreshKey);
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Entry | null>(null);
@@ -275,15 +283,15 @@ export default function SupervisorPage() {
     <RoleGate role="supervisor">
       <>
         <SiteHeader />
-        <main className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
+        <main className="mx-auto max-w-7xl px-3 py-5 sm:px-6 sm:py-8 lg:px-8 lg:py-10">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">
                 Supervisor
               </p>
-              <h1 className="mt-2 text-3xl font-bold">Operations register</h1>
+              <h1 className="mt-1 text-2xl font-bold sm:mt-2 sm:text-3xl">Operations register</h1>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="grid grid-cols-2 gap-2 sm:flex">
               <Button variant="outline" onClick={openCreate} className="min-h-11 gap-2">
                 <Plus className="h-4 w-4" /> Add walk-in
               </Button>
@@ -304,7 +312,7 @@ export default function SupervisorPage() {
               {error}
             </div>
           ) : null}
-          <div className="mt-6 grid gap-4 md:grid-cols-3">
+          <div className="mt-4 grid grid-cols-3 gap-2 sm:mt-6 sm:gap-4 md:grid-cols-3">
             <Metric label="Live tables" value={liveCount} />
             <Metric label="Booked slots" value={bookedCount} />
             <Metric label="Open tables" value={Math.max(0, snapshot.length - busyTableCount)} />
@@ -373,15 +381,100 @@ export default function SupervisorPage() {
             </Card>
           ) : null}
 
-          <div className="mt-6 grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
-            <Card className="border-border bg-surface">
-              <CardHeader>
+          <div className="mt-5 lg:hidden">
+            <div className="grid grid-cols-2 rounded-lg border border-border bg-surface p-1">
+              {(["ledger", "bookings"] as const).map((view) => (
+                <button
+                  key={view}
+                  type="button"
+                  onClick={() => setActiveHistory(view)}
+                  aria-pressed={activeHistory === view}
+                  className={cn(
+                    "min-h-11 rounded-md px-3 text-sm font-medium capitalize transition-colors",
+                    activeHistory === view
+                      ? "bg-felt text-white"
+                      : "text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  {view}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="mt-4 grid gap-6 lg:mt-6 lg:grid-cols-2 xl:grid-cols-[1.15fr_0.85fr]">
+            <Card className={cn("min-w-0 border-border bg-surface", activeHistory !== "ledger" && "hidden lg:block")}>
+              <CardHeader className="gap-3 p-4 sm:p-6">
                 <CardTitle>Ledger</CardTitle>
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                  <div className="space-y-1">
+                    <Label htmlFor="ledger-date" className="text-xs">Date</Label>
+                    <Input
+                      id="ledger-date"
+                      type="date"
+                      value={ledgerFilters.date}
+                      onChange={(event) =>
+                        setLedgerFilters((current) => ({ ...current, date: event.target.value }))
+                      }
+                      className="min-h-11"
+                    />
+                  </div>
+                  <FilterSelect
+                    id="ledger-source"
+                    label="Type"
+                    value={ledgerFilters.source}
+                    onChange={(value) =>
+                      setLedgerFilters((current) => ({ ...current, source: value }))
+                    }
+                    options={[
+                      ["", "All types"],
+                      ["ONLINE", "Online"],
+                      ["WALKIN", "Walk-in"],
+                      ["MAINTENANCE", "Maintenance"],
+                    ]}
+                  />
+                  <FilterSelect
+                    id="ledger-status"
+                    label="Status"
+                    value={ledgerFilters.status}
+                    onChange={(value) =>
+                      setLedgerFilters((current) => ({ ...current, status: value }))
+                    }
+                    options={[
+                      ["", "All statuses"],
+                      ["HELD", "Held"],
+                      ["CONFIRMED", "Confirmed"],
+                      ["ONGOING", "Ongoing"],
+                      ["COMPLETED", "Completed"],
+                      ["CANCELLED", "Cancelled"],
+                      ["NO_SHOW", "No-show"],
+                      ["EXPIRED", "Expired"],
+                    ]}
+                  />
+                  <FilterSelect
+                    id="ledger-payment"
+                    label="Payment"
+                    value={ledgerFilters.payment}
+                    onChange={(value) =>
+                      setLedgerFilters((current) => ({ ...current, payment: value }))
+                    }
+                    options={[
+                      ["", "All payments"],
+                      ["UNPAID", "Unpaid"],
+                      ["CASH", "Cash"],
+                      ["UPI", "UPI"],
+                      ["CARD", "Card"],
+                    ]}
+                  />
+                </div>
               </CardHeader>
               <CardContent className="overflow-hidden p-0">
-                <div className="overflow-x-auto">
-                  <table className="min-w-full text-left text-sm">
-                    <thead className="border-b border-border bg-background/50 text-muted-foreground">
+                <div
+                  ref={ledgerPage.scrollRootRef}
+                  className="max-h-[62vh] touch-pan-x touch-pan-y overflow-auto overscroll-contain"
+                  aria-label="Scrollable ledger history"
+                >
+                  <table className="min-w-[900px] text-left text-sm">
+                    <thead className="sticky top-0 z-10 border-b border-border bg-background text-muted-foreground">
                       <tr>
                         {[
                           "Table",
@@ -506,7 +599,6 @@ export default function SupervisorPage() {
                       )}
                     </tbody>
                   </table>
-                </div>
                 {ledgerPage.error ? (
                   <p className="p-4 text-sm text-destructive">{ledgerPage.error}</p>
                 ) : null}
@@ -514,13 +606,17 @@ export default function SupervisorPage() {
                   <p className="p-4 text-center text-sm text-muted-foreground">Loading ledger…</p>
                 ) : null}
                 {ledgerPage.hasMore ? <div ref={ledgerPage.sentinelRef} className="h-4" /> : null}
+                </div>
               </CardContent>
             </Card>
-            <Card className="border-border bg-surface">
-              <CardHeader>
+            <Card className={cn("min-w-0 border-border bg-surface", activeHistory !== "bookings" && "hidden lg:block")}>
+              <CardHeader className="p-4 sm:p-6">
                 <CardTitle>Bookings</CardTitle>
               </CardHeader>
-              <CardContent className="space-y-4">
+              <CardContent
+                ref={bookingsPage.scrollRootRef}
+                className="max-h-[70vh] space-y-4 overflow-y-auto overscroll-contain p-4 pt-0 sm:p-6 sm:pt-0"
+              >
                 <p className="text-sm text-muted-foreground">
                   Pending, upcoming, in-progress, and past online bookings.
                 </p>
@@ -804,10 +900,46 @@ export default function SupervisorPage() {
 function Metric({ label, value }: { label: string; value: number }) {
   return (
     <Card className="border-border bg-surface">
-      <CardContent className="p-5">
-        <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">{label}</p>
-        <p className="mt-3 text-3xl font-bold text-felt">{value}</p>
+      <CardContent className="p-3 sm:p-5">
+        <p className="truncate text-[10px] uppercase tracking-[0.08em] text-muted-foreground sm:text-xs sm:tracking-[0.18em]">
+          {label}
+        </p>
+        <p className="mt-1 text-2xl font-bold text-felt sm:mt-3 sm:text-3xl">{value}</p>
       </CardContent>
     </Card>
+  );
+}
+
+function FilterSelect({
+  id,
+  label,
+  value,
+  onChange,
+  options,
+}: {
+  id: string;
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  options: [string, string][];
+}) {
+  return (
+    <div className="space-y-1">
+      <Label htmlFor={id} className="text-xs">
+        {label}
+      </Label>
+      <select
+        id={id}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="min-h-11 w-full rounded-md border border-input bg-background px-2 text-sm"
+      >
+        {options.map(([optionValue, optionLabel]) => (
+          <option key={optionValue || "all"} value={optionValue}>
+            {optionLabel}
+          </option>
+        ))}
+      </select>
+    </div>
   );
 }

@@ -22,18 +22,36 @@ export type SessionPageRow = {
   table: { id: string; name: string; type: "SNOOKER" | "POOL" };
 };
 
-export function useSessionPages(view: "ledger" | "bookings", refreshKey: number) {
+export type SessionPageFilters = {
+  date: string;
+  source: string;
+  status: string;
+  payment: string;
+};
+
+export function useSessionPages(
+  view: "ledger" | "bookings",
+  refreshKey: number,
+  filters?: SessionPageFilters,
+  autoLoadEnabled = true,
+) {
   const [items, setItems] = useState<SessionPageRow[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
+  const scrollRootRef = useRef<HTMLDivElement>(null);
   const loadingRef = useRef(false);
   const cursorRef = useRef<string | null>(null);
   const hasMoreRef = useRef(true);
   const requestGeneration = useRef(0);
   const controllerRef = useRef<AbortController | null>(null);
+  const [isMobileViewport, setIsMobileViewport] = useState(false);
+  const date = view === "ledger" ? (filters?.date ?? "") : "";
+  const source = view === "ledger" ? (filters?.source ?? "") : "";
+  const status = view === "ledger" ? (filters?.status ?? "") : "";
+  const payment = view === "ledger" ? (filters?.payment ?? "") : "";
 
   const loadPage = useCallback(
     async (reset = false) => {
@@ -41,6 +59,12 @@ export function useSessionPages(view: "ledger" | "bookings", refreshKey: number)
       if (reset) {
         controllerRef.current?.abort();
         loadingRef.current = false;
+        cursorRef.current = null;
+        hasMoreRef.current = true;
+        setCursor(null);
+        setHasMore(true);
+        setItems([]);
+        setError(null);
       }
       loadingRef.current = true;
       setLoading(true);
@@ -51,6 +75,10 @@ export function useSessionPages(view: "ledger" | "bookings", refreshKey: number)
 
       try {
         const params = new URLSearchParams({ view, take: "25" });
+        if (date) params.set("date", date);
+        if (source) params.set("source", source);
+        if (status) params.set("status", status);
+        if (payment) params.set("payment", payment);
         if (pageCursor) params.set("cursor", pageCursor);
         const response = await fetch(`/api/ledger?${params}`, {
           cache: "no-store",
@@ -88,27 +116,39 @@ export function useSessionPages(view: "ledger" | "bookings", refreshKey: number)
         }
       }
     },
-    [view],
+    [date, payment, source, status, view],
   );
 
   useEffect(() => {
+    if (!autoLoadEnabled) return;
     cursorRef.current = null;
     hasMoreRef.current = true;
     void loadPage(true);
-  }, [loadPage, refreshKey]);
+  }, [autoLoadEnabled, loadPage, refreshKey]);
+
+  useEffect(() => {
+    const media = window.matchMedia("(max-width: 1023px)");
+    const updateViewport = () => setIsMobileViewport(media.matches);
+    updateViewport();
+    media.addEventListener("change", updateViewport);
+    return () => media.removeEventListener("change", updateViewport);
+  }, []);
 
   useEffect(() => {
     const sentinel = sentinelRef.current;
-    if (!sentinel || !hasMore || loading) return;
+    if (!autoLoadEnabled || !sentinel || !hasMore || loading) return;
     const observer = new IntersectionObserver(
       (entries) => {
         if (entries.some((entry) => entry.isIntersecting)) void loadPage();
       },
-      { rootMargin: "240px" },
+      {
+        root: isMobileViewport ? scrollRootRef.current : null,
+        rootMargin: "240px",
+      },
     );
     observer.observe(sentinel);
     return () => observer.disconnect();
-  }, [hasMore, loading, loadPage, cursor]);
+  }, [autoLoadEnabled, hasMore, isMobileViewport, loading, loadPage, cursor]);
 
-  return { items, hasMore, loading, error, loadMore: loadPage, sentinelRef };
+  return { items, hasMore, loading, error, loadMore: loadPage, sentinelRef, scrollRootRef };
 }
