@@ -3,12 +3,13 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ShieldCheck, UserCog } from "lucide-react";
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 
+import { currentAcademySessionAction, loginAction } from "@/actions/auth-actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { getDemoCredentials, getStoredSession, loginWithRole, type UserRole } from "@/lib/auth";
+import type { UserRole } from "@/lib/auth";
 
 function LoginContent() {
   const router = useRouter();
@@ -22,25 +23,22 @@ function LoginContent() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    const session = getStoredSession();
-    if (session) {
-      router.replace(session.role === "admin" ? "/admin" : "/supervisor");
-    }
+    void currentAcademySessionAction().then((session) => {
+      if (session) router.replace(session.role === "admin" ? "/admin" : "/supervisor");
+    });
   }, [router]);
 
-  const credentials = useMemo(() => getDemoCredentials(role), [role]);
-
-  function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError("");
 
-    const result = loginWithRole(role, email, password);
+    const result = await loginAction(email, password);
     if (!result.ok) {
-      setError(result.message || "Login failed.");
+      setError(result.message);
       return;
     }
 
-    router.replace(role === "admin" ? "/admin" : "/supervisor");
+    router.replace(result.role === "admin" ? "/admin" : "/supervisor");
   }
 
   return (
@@ -95,7 +93,7 @@ function LoginContent() {
               type="email"
               value={email}
               onChange={(event) => setEmail(event.target.value)}
-              placeholder={credentials.email}
+              autoComplete="username"
               className="min-h-12"
             />
           </div>
@@ -107,7 +105,7 @@ function LoginContent() {
               type="password"
               value={password}
               onChange={(event) => setPassword(event.target.value)}
-              placeholder="Enter password"
+              autoComplete="current-password"
               className="min-h-12"
             />
           </div>
@@ -117,10 +115,6 @@ function LoginContent() {
               {error}
             </div>
           ) : null}
-
-          <div className="rounded-md border border-border bg-background/80 p-3 text-xs text-muted-foreground">
-            Demo login: {credentials.email} / {credentials.password}
-          </div>
 
           <Button type="submit" className="w-full min-h-12">
             Continue as {role === "admin" ? "Admin" : "Supervisor"}

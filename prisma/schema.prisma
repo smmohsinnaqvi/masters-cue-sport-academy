@@ -1,0 +1,111 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum TableType {
+  SNOOKER
+  POOL
+}
+
+enum SessionSource {
+  ONLINE
+  WALKIN
+  MAINTENANCE
+}
+
+enum SessionStatus {
+  HELD
+  CONFIRMED
+  ONGOING
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+  EXPIRED
+}
+
+model Table {
+  id         String    @id @default(cuid())
+  name       String    @unique
+  type       TableType
+  hourlyRate Int       @map("hourly_rate")
+  isActive   Boolean   @default(true) @map("is_active")
+  sessions   Session[]
+
+  @@map("tables")
+}
+
+model Supervisor {
+  id           String    @id @default(cuid())
+  username     String    @unique
+  passwordHash String    @map("password_hash")
+  role         String    @default("supervisor")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  sessions     Session[] @relation("CreatedBy")
+
+  @@map("supervisors")
+}
+
+model Tournament {
+  id        String   @id @default(cuid())
+  title     String
+  date      DateTime @db.Date
+  entryFee  Int      @map("entry_fee")
+  prizePool Int      @map("prize_pool")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([date])
+  @@map("tournaments")
+}
+
+model CafeteriaItem {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  note      String?
+  price     Int
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([isActive, name])
+  @@map("cafeteria_items")
+}
+
+model Session {
+  id              String        @id @default(cuid())
+  table           Table         @relation(fields: [tableId], references: [id])
+  tableId         String        @map("table_id")
+  source          SessionSource
+  status          SessionStatus
+  startTime       DateTime      @map("start_time")
+  plannedEnd      DateTime      @map("planned_end")
+  actualStart     DateTime?     @map("actual_start")
+  actualEnd       DateTime?     @map("actual_end")
+  holdExpiresAt   DateTime?     @map("hold_expires_at")
+  customerName    String?       @map("customer_name")
+  customerPhone   String?       @map("customer_phone")
+  refCode         String?       @unique @map("ref_code")
+  players         Json?
+  loserName       String?       @map("loser_name")
+  rateSnapshot    Int?          @map("rate_snapshot")
+  durationMinutes Int?          @map("duration_minutes")
+  amount          Int?
+  paymentStatus   String        @default("UNPAID") @map("payment_status")
+  createdBy       Supervisor?   @relation("CreatedBy", fields: [createdById], references: [id])
+  createdById     String?       @map("created_by_id")
+  createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime      @updatedAt @map("updated_at")
+
+  @@index([tableId, status])
+  @@index([tableId, startTime, plannedEnd])
+  @@index([status, holdExpiresAt])
+  @@index([createdAt(sort: Desc), id(sort: Desc)])
+  @@index([source, createdAt(sort: Desc), id(sort: Desc)])
+  @@map("sessions")
+}

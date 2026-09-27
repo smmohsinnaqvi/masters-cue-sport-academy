@@ -8,20 +8,16 @@ import { SiteHeader } from "@/components/layout/site-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  ACADEMY,
-  AMBIENCE,
-  CAFE_MENU,
-  FACILITIES,
-  HOUSE_RULES,
-  MOCK_TABLES,
-  MOCK_TOURNAMENTS,
-} from "@/constants/site-content";
+import { ACADEMY, AMBIENCE, FACILITIES, HOUSE_RULES } from "@/constants/site-content";
 import { formatPrice } from "@/lib/booking";
+import { getPublicAcademyContent } from "@/lib/public-content";
 
-export default function HomePage() {
-  const snooker = MOCK_TABLES.filter((t) => t.type === "SNOOKER").length;
-  const pool = MOCK_TABLES.filter((t) => t.type === "POOL").length;
+export const dynamic = "force-dynamic";
+
+export default async function HomePage() {
+  const { tables, cafeteriaItems, tournaments } = await getPublicAcademyContent();
+  const snooker = tables.filter((table) => table.type === "SNOOKER").length;
+  const pool = tables.filter((table) => table.type === "POOL").length;
   const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(ACADEMY.mapQuery)}`;
 
   return (
@@ -93,59 +89,60 @@ export default function HomePage() {
         </div>
       </Section>
 
-      <Section
-        title="Cue & Cup Cafe"
-        subtitle="Our in-house canteen — served to the arena rail between frames."
-      >
-        <Card className="border-border bg-surface">
-          <CardContent className="grid gap-4 p-5 sm:grid-cols-2">
-            {CAFE_MENU.map((item) => (
-              <div
-                key={item.name}
-                className="flex items-start justify-between gap-4 border-b border-border pb-3 last:border-0"
-              >
-                <div>
-                  <p className="flex items-center gap-2 text-sm font-semibold">
-                    <Coffee className="h-4 w-4 text-gold" aria-hidden="true" />
-                    {item.name}
-                  </p>
-                  <p className="mt-1 text-xs text-muted-foreground">{item.note}</p>
+      {cafeteriaItems.length > 0 ? (
+        <Section
+          title="Cue & Cup Cafe"
+          subtitle="Our in-house canteen — served to the arena rail between frames."
+        >
+          <Card className="border-border bg-surface">
+            <CardContent className="grid gap-4 p-5 sm:grid-cols-2">
+              {cafeteriaItems.map((item) => (
+                <div
+                  key={item.id}
+                  className="flex items-start justify-between gap-4 border-b border-border pb-3 last:border-0"
+                >
+                  <div>
+                    <p className="flex items-center gap-2 text-sm font-semibold">
+                      <Coffee className="h-4 w-4 text-gold" aria-hidden="true" />
+                      {item.name}
+                    </p>
+                    <p className="mt-1 text-xs text-muted-foreground">{item.note}</p>
+                  </div>
+                  <span className="text-sm font-semibold text-felt">{formatPrice(item.price)}</span>
                 </div>
-                <span className="text-sm font-semibold text-felt">{formatPrice(item.price)}</span>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-      </Section>
+              ))}
+            </CardContent>
+          </Card>
+        </Section>
+      ) : null}
 
-      <Section title="Tournaments & leagues" subtitle="Entry fees, prize pools and spots left.">
-        <div className="grid gap-4 lg:grid-cols-3">
-          {MOCK_TOURNAMENTS.map((t) => (
-            <Card key={t.id} className="border-border bg-surface">
-              <CardHeader className="p-5 pb-2">
-                <Badge variant="outline" className="mb-2 min-h-7 w-fit border-gold/40 text-gold">
-                  <Trophy className="mr-1 h-3.5 w-3.5" aria-hidden="true" />
-                  {t.gameType}
-                </Badge>
-                <CardTitle className="text-lg leading-snug">{t.title}</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-2 p-5 pt-0 text-sm text-muted-foreground">
-                <p className="flex items-center gap-2">
-                  <Clock3 className="h-4 w-4" aria-hidden="true" />
-                  {t.date} · {t.time}
-                </p>
-                <p>
-                  Entry {formatPrice(t.entryFee)} · Prize pool{" "}
-                  <span className="text-felt">{formatPrice(t.prizePool)}</span>
-                </p>
-                <p className={t.status === "FILLING_FAST" ? "text-warning" : "text-foreground"}>
-                  {t.spotsLeft} of {t.totalSpots} spots left
-                </p>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      </Section>
+      {tournaments.length > 0 ? (
+        <Section title="Tournaments & leagues" subtitle="Upcoming academy tournaments.">
+          <div className="grid gap-4 lg:grid-cols-3">
+            {tournaments.map((t) => (
+              <Card key={t.id} className="border-border bg-surface">
+                <CardHeader className="p-5 pb-2">
+                  <Badge variant="outline" className="mb-2 min-h-7 w-fit border-gold/40 text-gold">
+                    <Trophy className="mr-1 h-3.5 w-3.5" aria-hidden="true" />
+                    Tournament
+                  </Badge>
+                  <CardTitle className="text-lg leading-snug">{t.title}</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-2 p-5 pt-0 text-sm text-muted-foreground">
+                  <p className="flex items-center gap-2">
+                    <Clock3 className="h-4 w-4" aria-hidden="true" />
+                    {t.date.toISOString().slice(0, 10)}
+                  </p>
+                  <p>
+                    Entry {formatPrice(t.entryFee)} · Prize pool{" "}
+                    <span className="text-felt">{formatPrice(t.prizePool)}</span>
+                  </p>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </Section>
+      ) : null}
 
       <Section title="House rules" subtitle="Keeps the cloth fast and the arena calm.">
         <ul className="grid gap-3 sm:grid-cols-2">

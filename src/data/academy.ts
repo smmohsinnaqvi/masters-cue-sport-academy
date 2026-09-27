@@ -58,7 +58,7 @@ export const FACILITIES = [
 
 export const HOUSE_RULES = [
   "Main arena is strictly no smoking — use the glass lounge.",
-  "10-minute buffer after every session for cloth brushing and racking.",
+  "Bookings occupy only the time reserved.",
   "Soft-soled shoes on the arena floor; no drinks on the table rails.",
   "Booking needs only your name and phone number — no account, no password.",
 ];

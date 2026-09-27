@@ -8,9 +8,8 @@ import {
   Clock3,
   Sparkles,
 } from "lucide-react";
-import { useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 
-import { FloorMap } from "@/components/booking/floor-map";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -38,61 +37,88 @@ import {
   isRangeFree,
   nextFreeStart,
   sessionPrice,
-  tableAvailability,
   toTimeInput,
   type DaySegment,
 } from "@/lib/booking";
-import { appendBookingQueue } from "@/lib/booking-store";
-import { MOCK_TABLES, type Table } from "@/data/mock-data";
+import { createOnlineBookingAction } from "@/actions/operations-actions";
+import type { BookingRecord, Table } from "@/types/operations";
+import {
+  academyDateKeyForOffset,
+  academyDateTimeToUtc,
+  academyMinutesOfDay,
+} from "@/lib/academy-time";
+import { useLiveBookings } from "@/hooks/useLiveBookings";
+import { useLiveTables } from "@/hooks/useLiveTables";
 import { cn } from "@/lib/utils";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 export function BookingEngine() {
   const dateOptions = useMemo(() => buildDateOptions(7), []);
+  const { tables, loading: tablesLoading, error: tablesError } = useLiveTables();
   const [dateOffset, setDateOffset] = useState(0);
+  const { bookings, loading: bookingsLoading, error: bookingsError } = useLiveBookings(dateOffset);
   const [duration, setDuration] = useState(120);
   const [tableType, setTableType] = useState<"ANY" | "SNOOKER" | "POOL">("ANY");
-  const [tableId, setTableId] = useState("snk-1");
+  const [tableId, setTableId] = useState("");
   const [timeInput, setTimeInput] = useState("18:00");
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [confirmed, setConfirmed] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
-
-  const table = MOCK_TABLES.find((t) => t.id === tableId) ?? MOCK_TABLES[0]!;
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const table = tables.find((t) => t.id === tableId) ?? tables[0] ?? null;
   const selectedDate = dateOptions.find((d) => d.offset === dateOffset) ?? dateOptions[0]!;
 
-  const tables = useMemo(
-    () => MOCK_TABLES.filter((tableItem) => tableType === "ANY" || tableItem.type === tableType),
-    [tableType],
+  useEffect(() => {
+    if (tables.length > 0 && !tables.some((tableItem) => tableItem.id === tableId)) {
+      setTableId(tables[0]!.id);
+    }
+  }, [tableId, tables]);
+
+  const filteredTables = useMemo(
+    () => tables.filter((tableItem) => tableType === "ANY" || tableItem.type === tableType),
+    [tableType, tables],
   );
 
   const requested = fromTimeInput(timeInput) ?? OPEN_START;
   const withinHours = requested >= OPEN_START && requested + duration <= OPEN_END;
-  const clash = withinHours ? conflictFor(table.id, dateOffset, requested, duration) : null;
+  const clash = withinHours
+    ? table
+      ? conflictFor(table.id, dateOffset, requested, duration, bookings)
+      : "No table selected"
+    : null;
   const requestedIsFree = withinHours && !clash;
 
-  const mapAvailability = useMemo(
-    () =>
-      Object.fromEntries(
-        MOCK_TABLES.map((tableItem) => [
-          tableItem.id,
-          tableAvailability(tableItem.id, dateOffset, duration),
-        ]),
-      ),
-    [dateOffset, duration],
-  );
-
   const quickStarts = useMemo(
-    () => freeStarts(table.id, dateOffset, duration).slice(0, 6),
-    [table.id, dateOffset, duration],
+    () => (table ? freeStarts(table.id, dateOffset, duration, bookings).slice(0, 6) : []),
+    [table, dateOffset, duration, bookings],
   );
 
-  const timelineSegments = useMemo(() => daySegments(table.id, dateOffset), [dateOffset, table.id]);
+  const timelineSegments = useMemo(
+    () => (table ? daySegments(table.id, dateOffset, bookings) : []),
+    [dateOffset, table, bookings],
+  );
 
   const alternativeTables = useMemo(() => {
-    const sameTableOptions = tables
+    const sameTableOptions = filteredTables
       .map((tableItem) => {
-        const availableStart = nextFreeStart(tableItem.id, dateOffset, duration, requested);
+        const availableStart = nextFreeStart(
+          tableItem.id,
+          dateOffset,
+          duration,
+          requested,
+          bookings,
+        );
         if (availableStart === null) return null;
         return { table: tableItem, start: availableStart };
       })
@@ -101,11 +127,13 @@ export function BookingEngine() {
       .slice(0, 3);
 
     return sameTableOptions;
-  }, [tables, dateOffset, duration, requested]);
+  }, [filteredTables, dateOffset, duration, requested, bookings]);
 
-  const endTime = toTimeInput(Math.min(requested + duration, OPEN_END));
-  const price = sessionPrice(table, duration);
-  const canBook = isRangeFree(table.id, dateOffset, requested, duration);
+  const endTime = formatTime(Math.min(requested + duration, OPEN_END));
+  const price = table ? sessionPrice(table, duration) : 0;
+  const canBook = Boolean(
+    table && isRangeFree(table.id, dateOffset, requested, duration, bookings),
+  );
 
   function handleTableSelect(nextTable: Table) {
     setTableId(nextTable.id);
@@ -122,27 +150,55 @@ export function BookingEngine() {
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    setSubmitError(null);
+    setConfirmOpen(true);
+  }
 
-    appendBookingQueue({
-      id: `booking-${Date.now()}`,
-      customer: name.trim() || "Walk-in Guest",
-      tableId: table.id,
-      tableName: table.shortName,
-      date: selectedDate.day,
-      start: formatTime(requested),
-      duration,
-      amount: price,
-      status: "pending",
-      source: "online",
-    });
+  async function confirmBooking() {
+    const start = academyDateTimeToUtc(academyDateKeyForOffset(dateOffset), timeInput);
+    const end = new Date(start.getTime() + duration * 60_000);
 
-    setConfirmed(true);
+    try {
+      if (!table) throw new Error("No table is selected");
+      const booking = await createOnlineBookingAction({
+        tableId: table.id,
+        customerName: name,
+        customerPhone: phone,
+        slotStart: start,
+        slotEnd: end,
+      });
+      setConfirmOpen(false);
+      setConfirmed(true);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "";
+      setSubmitError(
+        message.includes("not available") || message.includes("overlapping")
+          ? "This table is not available for the selected time. Please choose another time or table."
+          : message || "Unable to create booking. Please try again.",
+      );
+      setConfirmOpen(false);
+    }
   }
 
   const recommendedStart = useMemo(
-    () => nextFreeStart(table.id, dateOffset, duration, requested) ?? requested,
-    [dateOffset, duration, requested, table.id],
+    () =>
+      table
+        ? (nextFreeStart(table.id, dateOffset, duration, requested, bookings) ?? requested)
+        : requested,
+    [dateOffset, duration, requested, table, bookings],
   );
+
+  if (tablesLoading || bookingsLoading || tables.length === 0 || !table) {
+    return (
+      <Card className="border-border bg-surface">
+        <CardContent className="p-8 text-center text-sm text-muted-foreground">
+          {tablesLoading || bookingsLoading
+            ? "Loading live availability..."
+            : tablesError || bookingsError || "No active tables are configured yet."}
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
     <>
@@ -217,9 +273,8 @@ export function BookingEngine() {
                   onClick={() => {
                     setTableType(type);
                     const nextTable =
-                      (type === "ANY"
-                        ? MOCK_TABLES[0]
-                        : MOCK_TABLES.find((item) => item.type === type)) ?? MOCK_TABLES[0];
+                      (type === "ANY" ? tables[0] : tables.find((item) => item.type === type)) ??
+                      tables[0];
                     setTableId(nextTable.id);
                   }}
                   className={cn(
@@ -237,23 +292,57 @@ export function BookingEngine() {
             <div className="flex items-center justify-between gap-3">
               <p className="text-sm font-medium text-muted-foreground">4. Pick a table</p>
               <span className="rounded-full border border-border bg-surface px-2 py-1 text-xs text-muted-foreground">
-                {tables.length} available
+                {filteredTables.length} tables
               </span>
             </div>
 
-            <div className="rounded-2xl border border-border bg-surface/70 p-3">
-              <FloorMap
-                selectedTableId={table.id}
-                availability={mapAvailability}
-                onSelect={handleTableSelect}
-              />
-            </div>
-
             <div className="grid gap-3 sm:grid-cols-2">
-              {tables.map((tableOption) => {
-                const freeStartsCount = freeStarts(tableOption.id, dateOffset, duration).length;
+              {filteredTables.map((tableOption) => {
+                const freeStartsCount = freeStarts(
+                  tableOption.id,
+                  dateOffset,
+                  duration,
+                  bookings,
+                ).length;
                 const selected = tableOption.id === table.id;
                 const price = sessionPrice(tableOption, duration);
+                const tableBookings = bookings.filter(
+                  (booking) =>
+                    booking.tableId === tableOption.id && booking.dateOffset === dateOffset,
+                );
+                const activeBooking = conflictFor(
+                  tableOption.id,
+                  dateOffset,
+                  requested,
+                  duration,
+                  bookings,
+                );
+                const currentBooking =
+                  dateOffset === 0
+                    ? tableBookings.find((booking) => {
+                        const nowMinutes = academyMinutesOfDay(new Date());
+                        return booking.start <= nowMinutes && nowMinutes < booking.end;
+                      })
+                    : null;
+                const statusLabel = activeBooking
+                  ? activeBooking.status === "ONGOING"
+                    ? "In use"
+                    : activeBooking.status === "HELD"
+                      ? "Held"
+                      : activeBooking.status === "MAINTENANCE"
+                        ? "Maintenance"
+                        : "Booked"
+                  : "Available";
+                const statusTone =
+                  statusLabel === "Available"
+                    ? "bg-felt/10 text-felt"
+                    : statusLabel === "In use"
+                      ? "bg-blue-500/10 text-blue-600 dark:text-blue-300"
+                      : statusLabel === "Held"
+                        ? "bg-amber-400/15 text-amber-700 dark:text-amber-300"
+                        : statusLabel === "Maintenance"
+                          ? "bg-purple-500/10 text-purple-600 dark:text-purple-300"
+                          : "bg-destructive/10 text-destructive";
 
                 return (
                   <button
@@ -275,23 +364,23 @@ export function BookingEngine() {
                         </p>
                       </div>
                       <span
-                        className={cn(
-                          "rounded-full px-2 py-1 text-[10px] font-medium",
-                          freeStartsCount > 0
-                            ? "bg-felt/10 text-felt"
-                            : "bg-destructive/10 text-destructive",
-                        )}
+                        className={cn("rounded-full px-2 py-1 text-[10px] font-medium", statusTone)}
                       >
-                        {freeStartsCount > 0 ? "Available" : "Booked"}
+                        {statusLabel}
                       </span>
                     </div>
 
                     <div className="mt-4 flex items-center justify-between text-sm text-muted-foreground">
-                      <span>
-                        {tableOption.size} • {tableOption.brand}
-                      </span>
+                      <span>{tableOption.type}</span>
                       <span className="font-semibold text-foreground">₹{price}</span>
                     </div>
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      {currentBooking?.status === "ONGOING"
+                        ? "In use now"
+                        : activeBooking
+                          ? `Unavailable ${formatTime(requested)}–${formatTime(requested + duration)}`
+                          : `${freeStartsCount} other start${freeStartsCount === 1 ? "" : "s"} available`}
+                    </p>
                   </button>
                 );
               })}
@@ -360,6 +449,19 @@ export function BookingEngine() {
                 duration={duration}
                 onPick={(minutes) => setTimeInput(toTimeInput(minutes))}
               />
+              <div className="mt-3 flex flex-wrap gap-x-4 gap-y-2 text-[11px] text-muted-foreground">
+                <LegendDot className="bg-felt/70" label="Available" />
+                <LegendDot className="bg-red-500" label="Booked" />
+                <LegendDot className="bg-amber-400" label="Held" />
+                <LegendDot className="bg-blue-500" label="In use" />
+                <LegendDot className="bg-purple-500" label="Maintenance" />
+              </div>
+              {!requestedIsFree ? (
+                <div className="mt-3 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                  This table is not available for {formatTime(requested)}–{endTime}. Please choose
+                  another time or table.
+                </div>
+              ) : null}
             </div>
 
             {alternativeTables.length > 0 ? (
@@ -380,7 +482,7 @@ export function BookingEngine() {
                       }}
                       className="min-h-9 border-border bg-surface/80"
                     >
-                      {alternativeTable.shortName} · {formatTime(start)}
+                      {alternativeTable.name} · {formatTime(start)}
                     </Button>
                   ))}
                 </div>
@@ -470,7 +572,7 @@ export function BookingEngine() {
                   {formatTime(requested)} – {formatTime(requested + duration)}
                 </span>
                 <span className="inline-flex min-h-9 items-center rounded-md border border-border bg-background px-3">
-                  {table.size} • {table.type}
+                  {table.type}
                 </span>
                 <span className="inline-flex min-h-9 items-center rounded-md border border-border bg-background px-3 text-felt">
                   {formatPrice(price)}
@@ -482,11 +584,11 @@ export function BookingEngine() {
               <div className="mt-4 rounded-xl border border-felt/35 bg-felt/10 p-4">
                 <p className="flex items-center gap-2 text-base font-semibold text-felt">
                   <Sparkles className="h-5 w-5" aria-hidden="true" />
-                  Table held successfully
+                  Request submitted
                 </p>
                 <p className="mt-2 text-sm text-muted-foreground">
-                  We have saved your slot. Reach reception with your phone number to complete the
-                  booking.
+                  Your time is reserved while our team reviews the request. We will confirm it with
+                  you before the session.
                 </p>
               </div>
             ) : (
@@ -520,22 +622,50 @@ export function BookingEngine() {
                 <Separator />
 
                 <Button type="submit" className="min-h-12 w-full">
-                  Hold this table
+                  Request this table
                 </Button>
               </form>
             )}
           </div>
         </DrawerContent>
       </Drawer>
+      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Confirm booking?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {table.name} on {selectedDate.day}, {selectedDate.date} from {formatTime(requested)}{" "}
+              to {formatTime(requested + duration)} will be reserved while staff reviews it.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Go back</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(event) => {
+                event.preventDefault();
+                void confirmBooking();
+              }}
+            >
+              Confirm booking
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      {submitError ? (
+        <div className="fixed bottom-4 left-1/2 z-50 -translate-x-1/2 rounded-lg border border-destructive/40 bg-background px-4 py-3 text-sm text-destructive shadow-lg">
+          {submitError}
+        </div>
+      ) : null}
     </>
   );
 }
 
 const SEGMENT_TONE: Record<DaySegment["kind"], string> = {
   FREE: "bg-felt/35",
-  BOOKED: "bg-destructive/60",
-  HELD: "bg-warning/60",
-  BUFFER: "bg-muted",
+  BOOKED: "bg-red-500/80",
+  HELD: "bg-amber-400/80",
+  ONGOING: "bg-blue-500/80",
+  MAINTENANCE: "bg-purple-500/80",
 };
 
 function Timeline({
@@ -566,7 +696,9 @@ function Timeline({
             className={cn(
               "absolute inset-y-0 border-r border-background/60",
               SEGMENT_TONE[segment.kind],
-              segment.kind === "FREE" && "cursor-pointer hover:brightness-125",
+              segment.kind === "FREE"
+                ? "cursor-pointer hover:brightness-125"
+                : "cursor-not-allowed opacity-95",
             )}
             style={{
               left: `${pct(segment.start)}%`,
@@ -592,5 +724,14 @@ function Timeline({
         ))}
       </div>
     </div>
+  );
+}
+
+function LegendDot({ className, label }: { className: string; label: string }) {
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <span className={cn("h-2.5 w-2.5 rounded-sm", className)} aria-hidden="true" />
+      {label}
+    </span>
   );
 }

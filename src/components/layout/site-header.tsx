@@ -5,9 +5,10 @@ import { usePathname, useRouter } from "next/navigation";
 import { Activity, LogOut, Menu } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
+import { currentAcademySessionAction, logoutAction } from "@/actions/auth-actions";
 import { Button } from "@/components/ui/button";
 import { ACADEMY } from "@/data/academy";
-import { clearSession, getStoredSession, type AcademySession } from "@/lib/auth";
+import type { AcademySession } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 
 export function SiteHeader() {
@@ -17,7 +18,13 @@ export function SiteHeader() {
   const router = useRouter();
 
   useEffect(() => {
-    setSession(getStoredSession());
+    let active = true;
+    void currentAcademySessionAction().then((current) => {
+      if (active) setSession(current);
+    });
+    return () => {
+      active = false;
+    };
   }, [pathname]);
 
   const nav = useMemo(() => {
@@ -43,8 +50,8 @@ export function SiteHeader() {
     return items;
   }, [session]);
 
-  function handleLogout() {
-    clearSession();
+  async function handleLogout() {
+    await logoutAction();
     setSession(null);
     router.push("/");
   }
