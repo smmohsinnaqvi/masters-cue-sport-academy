@@ -234,10 +234,19 @@ export async function getOperationsSnapshotAction() {
   return prisma.table.findMany({
     where: { isActive: true },
     orderBy: { name: "asc" },
-    include: {
+    select: {
+      id: true,
+      name: true,
+      type: true,
       sessions: {
         where: { status: { in: [...ACTIVE_STATUSES] } },
         orderBy: { startTime: "asc" },
+        select: {
+          id: true,
+          tableId: true,
+          source: true,
+          status: true,
+        },
       },
     },
   });

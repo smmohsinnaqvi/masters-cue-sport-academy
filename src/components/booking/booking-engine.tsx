@@ -76,6 +76,7 @@ export function BookingEngine() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const table = tables.find((t) => t.id === tableId) ?? tables[0] ?? null;
   const selectedDate = dateOptions.find((d) => d.offset === dateOffset) ?? dateOptions[0]!;
 
@@ -155,9 +156,11 @@ export function BookingEngine() {
   }
 
   async function confirmBooking() {
+    if (isSubmitting) return;
     const start = academyDateTimeToUtc(academyDateKeyForOffset(dateOffset), timeInput);
     const end = new Date(start.getTime() + duration * 60_000);
 
+    setIsSubmitting(true);
     try {
       if (!table) throw new Error("No table is selected");
       const booking = await createOnlineBookingAction({
@@ -177,6 +180,8 @@ export function BookingEngine() {
           : message || "Unable to create booking. Please try again.",
       );
       setConfirmOpen(false);
+    } finally {
+      setIsSubmitting(false);
     }
   }
 
@@ -629,7 +634,12 @@ export function BookingEngine() {
           </div>
         </DrawerContent>
       </Drawer>
-      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+      <AlertDialog
+        open={confirmOpen}
+        onOpenChange={(open) => {
+          if (!isSubmitting) setConfirmOpen(open);
+        }}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Confirm booking?</AlertDialogTitle>
@@ -639,8 +649,10 @@ export function BookingEngine() {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Go back</AlertDialogCancel>
+            <AlertDialogCancel disabled={isSubmitting}>Go back</AlertDialogCancel>
             <AlertDialogAction
+              loading={isSubmitting}
+              loadingText="Submitting…"
               onClick={(event) => {
                 event.preventDefault();
                 void confirmBooking();
@@ -652,7 +664,10 @@ export function BookingEngine() {
         </AlertDialogContent>
       </AlertDialog>
       {submitError ? (
-        <div className="fixed bottom-4 left-1/2 z-50 -translate-x-1/2 rounded-lg border border-destructive/40 bg-background px-4 py-3 text-sm text-destructive shadow-lg">
+        <div
+          role="alert"
+          className="fixed bottom-4 left-1/2 z-50 -translate-x-1/2 rounded-lg border border-destructive/40 bg-background px-4 py-3 text-sm text-destructive shadow-lg"
+        >
           {submitError}
         </div>
       ) : null}

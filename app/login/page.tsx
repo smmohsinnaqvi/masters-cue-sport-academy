@@ -21,6 +21,7 @@ function LoginContent() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
     void currentAcademySessionAction().then((session) => {
@@ -30,15 +31,21 @@ function LoginContent() {
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (isSubmitting) return;
     setError("");
-
-    const result = await loginAction(email, password);
-    if (!result.ok) {
-      setError(result.message);
-      return;
+    setIsSubmitting(true);
+    try {
+      const result = await loginAction(email, password);
+      if (!result.ok) {
+        setError(result.message);
+        return;
+      }
+      router.replace(result.role === "admin" ? "/admin" : "/supervisor");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Unable to sign in. Please try again.");
+    } finally {
+      setIsSubmitting(false);
     }
-
-    router.replace(result.role === "admin" ? "/admin" : "/supervisor");
   }
 
   return (
@@ -63,6 +70,7 @@ function LoginContent() {
         <div className="mb-5 inline-flex w-full rounded-lg border border-border bg-background p-1">
           <button
             type="button"
+            disabled={isSubmitting}
             onClick={() => setRole("admin")}
             className={
               "flex-1 rounded-md px-4 py-2.5 text-sm font-medium transition-colors " +
@@ -73,6 +81,7 @@ function LoginContent() {
           </button>
           <button
             type="button"
+            disabled={isSubmitting}
             onClick={() => setRole("supervisor")}
             className={
               "flex-1 rounded-md px-4 py-2.5 text-sm font-medium transition-colors " +
@@ -94,6 +103,7 @@ function LoginContent() {
               value={email}
               onChange={(event) => setEmail(event.target.value)}
               autoComplete="username"
+              disabled={isSubmitting}
               className="min-h-12"
             />
           </div>
@@ -106,6 +116,7 @@ function LoginContent() {
               value={password}
               onChange={(event) => setPassword(event.target.value)}
               autoComplete="current-password"
+              disabled={isSubmitting}
               className="min-h-12"
             />
           </div>
@@ -116,7 +127,12 @@ function LoginContent() {
             </div>
           ) : null}
 
-          <Button type="submit" className="w-full min-h-12">
+          <Button
+            type="submit"
+            className="w-full min-h-12"
+            loading={isSubmitting}
+            loadingText="Signing in…"
+          >
             Continue as {role === "admin" ? "Admin" : "Supervisor"}
           </Button>
         </form>

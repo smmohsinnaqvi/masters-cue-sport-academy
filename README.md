@@ -11,9 +11,12 @@ The application supports:
 - Online bookings, walk-ins, and maintenance blocks in one authoritative
   `Session` model.
 - Real-time availability updates through Supabase Realtime.
+- Public academy content is server-cached and invalidated by admin edits; live
+  table availability and staff operations remain fresh.
 - Admin access to the supervisor view.
 - Admin settings routes for tournaments, cafeteria items, and hourly rates.
 - Confirmation dialogs for booking and operations mutations.
+- Pending feedback for login, booking, and supervisor actions.
 - Loading and error states for the main routes.
 
 ## Technology

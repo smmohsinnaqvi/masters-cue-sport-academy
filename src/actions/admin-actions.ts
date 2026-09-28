@@ -1,9 +1,16 @@
 "use server";
 
 import { TableType } from "@prisma/client";
+import { revalidateTag } from "next/cache";
 
 import { prisma } from "@/lib/prisma";
 import { requireAcademyRole } from "@/lib/supabase-auth-server";
+
+const PUBLIC_CONTENT_TAG = "public-academy-content";
+
+function revalidatePublicContent() {
+  revalidateTag(PUBLIC_CONTENT_TAG);
+}
 
 function requiredText(value: string, label: string) {
   const normalized = value.trim();
@@ -53,7 +60,7 @@ export async function createTournamentAction(input: {
   prizePool: number;
 }) {
   await requireAcademyRole("admin");
-  return prisma.tournament.create({
+  const tournament = await prisma.tournament.create({
     data: {
       title: requiredText(input.title, "Tournament name"),
       date: tournamentDate(input.date),
@@ -61,6 +68,8 @@ export async function createTournamentAction(input: {
       prizePool: nonNegativeAmount(input.prizePool, "Prize pool"),
     },
   });
+  revalidatePublicContent();
+  return tournament;
 }
 
 export async function updateTournamentAction(input: {
@@ -71,7 +80,7 @@ export async function updateTournamentAction(input: {
   prizePool: number;
 }) {
   await requireAcademyRole("admin");
-  return prisma.tournament.update({
+  const tournament = await prisma.tournament.update({
     where: { id: requiredText(input.id, "Tournament ID") },
     data: {
       title: requiredText(input.title, "Tournament name"),
@@ -80,11 +89,14 @@ export async function updateTournamentAction(input: {
       prizePool: nonNegativeAmount(input.prizePool, "Prize pool"),
     },
   });
+  revalidatePublicContent();
+  return tournament;
 }
 
 export async function deleteTournamentAction(id: string) {
   await requireAcademyRole("admin");
   await prisma.tournament.delete({ where: { id: requiredText(id, "Tournament ID") } });
+  revalidatePublicContent();
 }
 
 export async function createCafeteriaItemAction(input: {
@@ -93,13 +105,15 @@ export async function createCafeteriaItemAction(input: {
   price: number;
 }) {
   await requireAcademyRole("admin");
-  return prisma.cafeteriaItem.create({
+  const item = await prisma.cafeteriaItem.create({
     data: {
       name: requiredText(input.name, "Item name"),
       note: input.note?.trim() || null,
       price: nonNegativeAmount(input.price, "Price"),
     },
   });
+  revalidatePublicContent();
+  return item;
 }
 
 export async function updateCafeteriaItemAction(input: {
@@ -109,7 +123,7 @@ export async function updateCafeteriaItemAction(input: {
   price: number;
 }) {
   await requireAcademyRole("admin");
-  return prisma.cafeteriaItem.update({
+  const item = await prisma.cafeteriaItem.update({
     where: { id: requiredText(input.id, "Item ID") },
     data: {
       name: requiredText(input.name, "Item name"),
@@ -117,11 +131,14 @@ export async function updateCafeteriaItemAction(input: {
       price: nonNegativeAmount(input.price, "Price"),
     },
   });
+  revalidatePublicContent();
+  return item;
 }
 
 export async function deleteCafeteriaItemAction(id: string) {
   await requireAcademyRole("admin");
   await prisma.cafeteriaItem.delete({ where: { id: requiredText(id, "Item ID") } });
+  revalidatePublicContent();
 }
 
 export async function updateHourlyRatesAction(rates: { snooker: number; pool: number }) {
@@ -141,5 +158,6 @@ export async function updateHourlyRatesAction(rates: { snooker: number; pool: nu
       tx.table.updateMany({ where: { type: "POOL" }, data: { hourlyRate: pool } }),
     ]);
   });
+  revalidatePublicContent();
   return { snooker, pool };
 }

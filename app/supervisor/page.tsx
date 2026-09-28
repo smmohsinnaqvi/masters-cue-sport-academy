@@ -187,6 +187,10 @@ export default function SupervisorPage() {
     action: () => Promise<void>;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [isConfirming, setIsConfirming] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [isEndingSession, setIsEndingSession] = useState(false);
+  const [isRecordingPayment, setIsRecordingPayment] = useState(false);
 
   const refresh = useCallback(async () => {
     const next = await getOperationsSnapshotAction();
@@ -268,7 +272,8 @@ export default function SupervisorPage() {
   }
 
   async function runConfirmed() {
-    if (!confirm) return;
+    if (!confirm || isConfirming) return;
+    setIsConfirming(true);
     try {
       await confirm.action();
       setConfirm(null);
@@ -276,6 +281,51 @@ export default function SupervisorPage() {
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Operation failed");
       setConfirm(null);
+    } finally {
+      setIsConfirming(false);
+    }
+  }
+
+  async function handleLogout() {
+    if (isLoggingOut) return;
+    setIsLoggingOut(true);
+    try {
+      await logoutAction();
+      router.replace("/login?role=supervisor");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Unable to log out");
+    } finally {
+      setIsLoggingOut(false);
+    }
+  }
+
+  async function closeCurrentSession() {
+    if (!endSession || isEndingSession) return;
+    setIsEndingSession(true);
+    try {
+      await endSessionAction(endSession);
+      setEndSession(null);
+      setError(null);
+      await refresh();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Unable to close session");
+    } finally {
+      setIsEndingSession(false);
+    }
+  }
+
+  async function recordCurrentPayment() {
+    if (!paymentEntry || isRecordingPayment) return;
+    setIsRecordingPayment(true);
+    try {
+      await recordOnlinePaymentAction(paymentEntry.sessionId, paymentEntry.paymentMethod);
+      setPaymentEntry(null);
+      setError(null);
+      await refresh();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Unable to record payment");
+    } finally {
+      setIsRecordingPayment(false);
     }
   }
 
@@ -297,10 +347,9 @@ export default function SupervisorPage() {
               </Button>
               <Button
                 variant="outline"
-                onClick={async () => {
-                  await logoutAction();
-                  router.replace("/login?role=supervisor");
-                }}
+                onClick={() => void handleLogout()}
+                loading={isLoggingOut}
+                loadingText="Logging out…"
                 className="min-h-11 gap-2"
               >
                 <UserCog className="h-4 w-4" /> Logout
@@ -308,7 +357,10 @@ export default function SupervisorPage() {
             </div>
           </div>
           {error ? (
-            <div className="mt-4 rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+            <div
+              role="alert"
+              className="mt-4 rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive"
+            >
               {error}
             </div>
           ) : null}
@@ -744,7 +796,7 @@ export default function SupervisorPage() {
         <AlertDialog
           open={Boolean(confirm)}
           onOpenChange={(open) => {
-            if (!open) setConfirm(null);
+            if (!open && !isConfirming) setConfirm(null);
           }}
         >
           <AlertDialogContent>
@@ -753,8 +805,10 @@ export default function SupervisorPage() {
               <AlertDialogDescription>{confirm?.description}</AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
-              <AlertDialogCancel>Go back</AlertDialogCancel>
+              <AlertDialogCancel disabled={isConfirming}>Go back</AlertDialogCancel>
               <AlertDialogAction
+                loading={isConfirming}
+                loadingText="Working…"
                 onClick={(event) => {
                   event.preventDefault();
                   void runConfirmed();
@@ -768,7 +822,7 @@ export default function SupervisorPage() {
         <AlertDialog
           open={Boolean(endSession)}
           onOpenChange={(open) => {
-            if (!open) setEndSession(null);
+            if (!open && !isEndingSession) setEndSession(null);
           }}
         >
           <AlertDialogContent>
@@ -816,26 +870,17 @@ export default function SupervisorPage() {
               </div>
             </div>
             <AlertDialogFooter>
-              <AlertDialogCancel>Go back</AlertDialogCancel>
+              <AlertDialogCancel disabled={isEndingSession}>Go back</AlertDialogCancel>
               <AlertDialogAction
+                loading={isEndingSession}
+                loadingText="Closing session…"
                 onClick={(event) => {
                   event.preventDefault();
                   if (!endSession?.loserName.trim()) {
                     setError("Paying player is required before closing the session.");
                     return;
                   }
-                  const current = endSession;
-                  void endSessionAction(current).then(
-                    async () => {
-                      setEndSession(null);
-                      setError(null);
-                      await refresh();
-                    },
-                    (reason) =>
-                      setError(
-                        reason instanceof Error ? reason.message : "Unable to close session",
-                      ),
-                  );
+                  void closeCurrentSession();
                 }}
               >
                 Close and record payment
@@ -846,7 +891,7 @@ export default function SupervisorPage() {
         <AlertDialog
           open={Boolean(paymentEntry)}
           onOpenChange={(open) => {
-            if (!open) setPaymentEntry(null);
+            if (!open && !isRecordingPayment) setPaymentEntry(null);
           }}
         >
           <AlertDialogContent>
@@ -880,23 +925,13 @@ export default function SupervisorPage() {
               </select>
             </div>
             <AlertDialogFooter>
-              <AlertDialogCancel>Go back</AlertDialogCancel>
+              <AlertDialogCancel disabled={isRecordingPayment}>Go back</AlertDialogCancel>
               <AlertDialogAction
+                loading={isRecordingPayment}
+                loadingText="Recording payment…"
                 onClick={(event) => {
                   event.preventDefault();
-                  if (!paymentEntry) return;
-                  const current = paymentEntry;
-                  void recordOnlinePaymentAction(current.sessionId, current.paymentMethod).then(
-                    async () => {
-                      setPaymentEntry(null);
-                      setError(null);
-                      await refresh();
-                    },
-                    (reason) =>
-                      setError(
-                        reason instanceof Error ? reason.message : "Unable to record payment",
-                      ),
-                  );
+                  void recordCurrentPayment();
                 }}
               >
                 Record payment
