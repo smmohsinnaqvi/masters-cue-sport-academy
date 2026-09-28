@@ -24,6 +24,10 @@ export function formatPrice(value: number) {
   }).format(value);
 }
 
+export function estimatedSessionPrice(table: Pick<Table, "hourlyRate">, durationMinutes: number) {
+  return Math.round((table.hourlyRate * durationMinutes) / 60);
+}
+
 export interface DateOption {
   offset: number;
   id: string;

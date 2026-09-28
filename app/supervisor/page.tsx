@@ -31,6 +31,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Skeleton } from "@/components/ui/skeleton";
 import type { Table } from "@/types/operations";
 import { supabase } from "@/lib/supabase";
 import { useSessionPages, type SessionPageRow } from "@/hooks/useSessionPages";
@@ -159,6 +160,7 @@ function bookingFromPage(session: SessionPageRow): Booking {
 export default function SupervisorPage() {
   const router = useRouter();
   const [snapshot, setSnapshot] = useState<Snapshot>([]);
+  const [snapshotLoading, setSnapshotLoading] = useState(true);
   const [refreshKey, setRefreshKey] = useState(0);
   const [activeHistory, setActiveHistory] = useState<"ledger" | "bookings">("ledger");
   const [ledgerFilters, setLedgerFilters] = useState({
@@ -199,9 +201,11 @@ export default function SupervisorPage() {
   }, []);
 
   useEffect(() => {
-    void refresh().catch((reason) =>
-      setError(reason instanceof Error ? reason.message : "Unable to load operations"),
-    );
+    void refresh()
+      .catch((reason) =>
+        setError(reason instanceof Error ? reason.message : "Unable to load operations"),
+      )
+      .finally(() => setSnapshotLoading(false));
     const channel = supabase
       .channel("operations-realtime")
       .on(
@@ -342,7 +346,12 @@ export default function SupervisorPage() {
               <h1 className="mt-1 text-2xl font-bold sm:mt-2 sm:text-3xl">Operations register</h1>
             </div>
             <div className="grid grid-cols-2 gap-2 sm:flex">
-              <Button variant="outline" onClick={openCreate} className="min-h-11 gap-2">
+              <Button
+                variant="outline"
+                onClick={openCreate}
+                disabled={snapshotLoading || snapshot.length === 0}
+                className="min-h-11 gap-2"
+              >
                 <Plus className="h-4 w-4" /> Add walk-in
               </Button>
               <Button
@@ -364,10 +373,21 @@ export default function SupervisorPage() {
               {error}
             </div>
           ) : null}
-          <div className="mt-4 grid grid-cols-3 gap-2 sm:mt-6 sm:gap-4 md:grid-cols-3">
-            <Metric label="Live tables" value={liveCount} />
-            <Metric label="Booked slots" value={bookedCount} />
-            <Metric label="Open tables" value={Math.max(0, snapshot.length - busyTableCount)} />
+          <div
+            className="mt-4 grid grid-cols-3 gap-2 sm:mt-6 sm:gap-4 md:grid-cols-3"
+            aria-busy={snapshotLoading}
+          >
+            {snapshotLoading ? (
+              Array.from({ length: 3 }, (_, index) => (
+                <Skeleton key={index} className="h-24 rounded-xl" />
+              ))
+            ) : (
+              <>
+                <Metric label="Live tables" value={liveCount} />
+                <Metric label="Booked slots" value={bookedCount} />
+                <Metric label="Open tables" value={Math.max(0, snapshot.length - busyTableCount)} />
+              </>
+            )}
           </div>
 
           {showForm ? (
@@ -531,6 +551,7 @@ export default function SupervisorPage() {
                   ref={ledgerPage.scrollRootRef}
                   className="max-h-[62vh] touch-pan-x touch-pan-y overflow-auto overscroll-contain"
                   aria-label="Scrollable ledger history"
+                  aria-busy={ledgerPage.loading}
                 >
                   <table className="min-w-[900px] text-left text-sm">
                     <thead className="sticky top-0 z-10 border-b border-border bg-background text-muted-foreground">
@@ -553,7 +574,17 @@ export default function SupervisorPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {entries.length === 0 ? (
+                      {entries.length === 0 && ledgerPage.loading ? (
+                        Array.from({ length: 4 }, (_, index) => (
+                          <tr key={`ledger-skeleton-${index}`}>
+                            {Array.from({ length: 9 }, (_, cell) => (
+                              <td key={cell} className="px-4 py-3">
+                                <Skeleton className="h-4 w-20" />
+                              </td>
+                            ))}
+                          </tr>
+                        ))
+                      ) : entries.length === 0 ? (
                         <tr>
                           <td colSpan={9} className="px-4 py-10 text-center text-muted-foreground">
                             No session records yet.
@@ -656,13 +687,21 @@ export default function SupervisorPage() {
                           </tr>
                         ))
                       )}
+                      {entries.length > 0 && ledgerPage.loading
+                        ? Array.from({ length: 2 }, (_, index) => (
+                            <tr key={`ledger-more-${index}`}>
+                              {Array.from({ length: 9 }, (_, cell) => (
+                                <td key={cell} className="px-4 py-3">
+                                  <Skeleton className="h-4 w-20" />
+                                </td>
+                              ))}
+                            </tr>
+                          ))
+                        : null}
                     </tbody>
                   </table>
                   {ledgerPage.error ? (
                     <p className="p-4 text-sm text-destructive">{ledgerPage.error}</p>
-                  ) : null}
-                  {ledgerPage.loading ? (
-                    <p className="p-4 text-center text-sm text-muted-foreground">Loading ledger…</p>
                   ) : null}
                   {ledgerPage.hasMore ? <div ref={ledgerPage.sentinelRef} className="h-4" /> : null}
                 </div>
@@ -684,7 +723,17 @@ export default function SupervisorPage() {
                 <p className="text-sm text-muted-foreground">
                   Pending, upcoming, in-progress, and past online bookings.
                 </p>
-                {bookings.length === 0 ? (
+                {bookings.length === 0 && bookingsPage.loading ? (
+                  <div className="space-y-3" role="status" aria-label="Loading bookings">
+                    {Array.from({ length: 3 }, (_, index) => (
+                      <div key={index} className="space-y-3 rounded-lg border border-border p-4">
+                        <Skeleton className="h-4 w-2/3" />
+                        <Skeleton className="h-3 w-1/2" />
+                        <Skeleton className="h-9 w-full rounded-md" />
+                      </div>
+                    ))}
+                  </div>
+                ) : bookings.length === 0 ? (
                   <div className="rounded-lg border border-dashed border-border p-6 text-sm text-muted-foreground">
                     No online booking requests.
                   </div>
@@ -778,13 +827,18 @@ export default function SupervisorPage() {
                     </div>
                   ))
                 )}
+                {bookings.length > 0 && bookingsPage.loading ? (
+                  <div className="space-y-3" role="status" aria-label="Loading more bookings">
+                    {Array.from({ length: 2 }, (_, index) => (
+                      <div key={index} className="space-y-3 rounded-lg border border-border p-4">
+                        <Skeleton className="h-4 w-2/3" />
+                        <Skeleton className="h-3 w-1/2" />
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
                 {bookingsPage.error ? (
                   <p className="text-sm text-destructive">{bookingsPage.error}</p>
-                ) : null}
-                {bookingsPage.loading ? (
-                  <p className="text-center text-sm text-muted-foreground">
-                    Loading booking history…
-                  </p>
                 ) : null}
                 {bookingsPage.hasMore ? (
                   <div ref={bookingsPage.sentinelRef} className="h-4" />

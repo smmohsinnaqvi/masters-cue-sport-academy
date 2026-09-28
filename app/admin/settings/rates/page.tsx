@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 
 import { getAdminSettingsAction, updateHourlyRatesAction } from "@/actions/admin-actions";
 import { RoleGate } from "@/components/auth/role-gate";
+import { SettingsFormSkeleton } from "@/components/admin/settings-skeleton";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -55,7 +56,7 @@ export default function RateSettingsPage() {
         </CardHeader>
         <CardContent>
           {loading ? (
-            <p className="text-sm text-muted-foreground">Loading current rates…</p>
+            <SettingsFormSkeleton />
           ) : (
             <form onSubmit={submit} className="max-w-md space-y-4">
               <div className="space-y-2">

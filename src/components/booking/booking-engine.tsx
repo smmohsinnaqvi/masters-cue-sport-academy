@@ -17,6 +17,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Slider } from "@/components/ui/slider";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   BOOKING_STEP_MINUTES,
   MIN_BOOKING_DURATION_MINUTES,
@@ -27,6 +28,7 @@ import {
   ceilToBookingStep,
   conflictFor,
   daySegments,
+  estimatedSessionPrice,
   formatPrice,
   formatTime,
   freeStarts,
@@ -183,6 +185,7 @@ export function BookingEngine({ initialNow }: { initialNow: string }) {
   ]);
 
   const endTime = formatTime(requested + duration);
+  const estimatedPrice = table ? estimatedSessionPrice(table, duration) : 0;
   const maxDuration = hasAvailableTime
     ? Math.max(MIN_BOOKING_DURATION_MINUTES, OPEN_END - requested)
     : MIN_BOOKING_DURATION_MINUTES;
@@ -267,40 +270,67 @@ export function BookingEngine({ initialNow }: { initialNow: string }) {
   if (tablesLoading || tables.length === 0 || !table) {
     return (
       <Card className="border-border bg-surface">
-        <CardContent className="space-y-4 p-4 sm:p-6">
-          <p className="text-sm text-muted-foreground" role={tablesError ? "alert" : "status"}>
-            {tablesLoading
-              ? "Loading table choices..."
-              : tablesError || "No active tables are available to book."}
-          </p>
-          <div className="-mx-4 space-y-3 sm:-mx-6">
-            <div className="px-4 sm:px-6">
-              <p className="text-sm font-semibold text-foreground">Live availability</p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                {selectedDate.day}, {selectedDate.date} · 10:00 AM–11:00 PM
-              </p>
+        <CardContent className="space-y-5 p-4 sm:p-6" aria-busy={tablesLoading}>
+          {tablesLoading ? (
+            <div className="space-y-5" role="status" aria-label="Loading table choices">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <Skeleton className="h-7 w-48" />
+                <Skeleton className="h-9 w-44 rounded-full" />
+              </div>
+              <div className="space-y-3">
+                <Skeleton className="h-4 w-28" />
+                <div className="flex gap-3 overflow-hidden">
+                  {Array.from({ length: 4 }, (_, index) => (
+                    <Skeleton key={index} className="h-16 w-24 shrink-0 rounded-lg" />
+                  ))}
+                </div>
+              </div>
+              <div className="space-y-3">
+                <Skeleton className="h-4 w-28" />
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                  {Array.from({ length: 6 }, (_, index) => (
+                    <Skeleton key={index} className="h-28 rounded-xl sm:h-32" />
+                  ))}
+                </div>
+              </div>
+              <Skeleton className="h-4 w-32" />
+              <Skeleton className="h-24 w-full rounded-lg" />
+              <Skeleton className="h-52 w-full rounded-xl" />
+              <span className="sr-only">Loading table choices and availability</span>
             </div>
-            <Timeline
-              segments={[]}
-              requestedStart={null}
-              duration={duration}
-              visibleStart={OPEN_START}
-              earliestSelectableStart={OPEN_END}
-              nowMinutes={null}
-              focusKey={timelineFocusKey}
-            />
-            <p className="px-4 text-sm text-muted-foreground sm:px-6" role="status">
-              {tablesError
-                ? "Table information could not be loaded, so table-specific availability isn’t available yet."
-                : tablesLoading
-                  ? "Loading table information and live availability."
-                  : bookingsError
-                    ? "Live availability could not be loaded. Please try again shortly."
-                    : bookingsLoading
-                      ? "Loading this day’s table availability. The chart will update when it’s ready."
-                      : "No active tables are available to display on the chart yet."}
-            </p>
-          </div>
+          ) : (
+            <>
+              <p className="text-sm text-destructive" role="alert">
+                {tablesError || "No active tables are available to book."}
+              </p>
+              <div className="-mx-4 space-y-3 sm:-mx-6">
+                <div className="px-4 sm:px-6">
+                  <p className="text-sm font-medium text-muted-foreground">Live availability</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {selectedDate.day}, {selectedDate.date} · 10:00 AM–11:00 PM
+                  </p>
+                </div>
+                <Timeline
+                  segments={[]}
+                  requestedStart={null}
+                  duration={duration}
+                  visibleStart={OPEN_START}
+                  earliestSelectableStart={OPEN_END}
+                  nowMinutes={null}
+                  focusKey={timelineFocusKey}
+                />
+                <p className="px-4 text-sm text-muted-foreground sm:px-6" role="status">
+                  {tablesError
+                    ? "Table information could not be loaded, so table-specific availability isn’t available yet."
+                    : bookingsError
+                      ? "Live availability could not be loaded. Please try again shortly."
+                      : bookingsLoading
+                        ? "Loading this day’s table availability. The chart will update when it’s ready."
+                        : "No active tables are available to display on the chart yet."}
+                </p>
+              </div>
+            </>
+          )}
         </CardContent>
       </Card>
     );
@@ -467,7 +497,11 @@ export function BookingEngine({ initialNow }: { initialNow: string }) {
                       <span
                         className={cn("rounded-full px-2 py-1 text-[10px] font-medium", statusTone)}
                       >
-                        {statusLabel}
+                        {bookingsLoading ? (
+                          <Skeleton className="h-3 w-10 rounded-full" />
+                        ) : (
+                          statusLabel
+                        )}
                       </span>
                     </div>
 
@@ -476,36 +510,34 @@ export function BookingEngine({ initialNow }: { initialNow: string }) {
                         {formatPrice(tableOption.hourlyRate)} / hr
                       </span>
                     </div>
-                    <p className="mt-2 text-xs text-muted-foreground">
-                      {!availabilityReady
-                        ? bookingsLoading
-                          ? "Checking live availability"
-                          : "Availability could not be checked"
-                        : currentBooking?.status === "ONGOING"
-                          ? "In use now"
-                          : activeBooking
-                            ? `Unavailable ${formatTime(requested)}–${formatTime(requested + duration)}`
-                            : freeStartsCount === 0
-                              ? "Try another day or session length"
-                              : `${freeStartsCount} available start${freeStartsCount === 1 ? "" : "s"}`}
-                    </p>
+                    {bookingsLoading ? (
+                      <Skeleton className="mt-2 h-3 w-32" />
+                    ) : (
+                      <p className="mt-2 text-xs text-muted-foreground">
+                        {!availabilityReady
+                          ? bookingsLoading
+                            ? "Checking live availability"
+                            : "Availability could not be checked"
+                          : currentBooking?.status === "ONGOING"
+                            ? "In use now"
+                            : activeBooking
+                              ? `Unavailable ${formatTime(requested)}–${formatTime(requested + duration)}`
+                              : freeStartsCount === 0
+                                ? "Try another day or session length"
+                                : `${freeStartsCount} available start${freeStartsCount === 1 ? "" : "s"}`}
+                      </p>
+                    )}
                   </button>
                 );
               })}
             </div>
           </div>
 
-          <div className="space-y-4">
-            <div className="space-y-5 rounded-2xl bg-surface p-4 sm:p-5">
-              <div>
-                <p className="text-sm font-semibold text-foreground">Choose your time</p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Set your session length and start time. Your end time updates automatically.
-                </p>
-              </div>
-
-              <div className="grid grid-cols-1 gap-4">
-                <div className="space-y-3 rounded-xl bg-background/60 p-3 sm:p-4">
+          <div className="space-y-5">
+            <section className="space-y-3">
+              <h2 className="text-sm font-medium text-muted-foreground">Choose your time</h2>
+              <div className="space-y-6">
+                <div className="space-y-3">
                   <div className="flex items-center justify-between gap-3">
                     <div>
                       <p className="text-sm font-medium text-foreground">Session length</p>
@@ -513,7 +545,7 @@ export function BookingEngine({ initialNow }: { initialNow: string }) {
                         15-minute steps · at least 1 hour
                       </p>
                     </div>
-                    <span className="shrink-0 rounded-lg bg-felt/10 px-3 py-2 text-sm font-semibold text-felt">
+                    <span className="shrink-0 text-sm font-semibold text-felt">
                       {Math.floor(duration / 60)} hr{duration >= 120 ? "s" : ""}
                       {duration % 60 ? ` ${duration % 60} min` : ""}
                     </span>
@@ -538,7 +570,7 @@ export function BookingEngine({ initialNow }: { initialNow: string }) {
                       className="min-h-12 px-3"
                     />
                   ) : (
-                    <p className="rounded-lg bg-background/70 px-3 py-2 text-sm text-muted-foreground">
+                    <p className="text-sm text-muted-foreground">
                       {hasAvailableTime
                         ? "A 1-hour session is the longest that fits at this start time. Move the start earlier for a longer game."
                         : "A full 1-hour session no longer fits today. Choose another day."}
@@ -551,12 +583,13 @@ export function BookingEngine({ initialNow }: { initialNow: string }) {
                     </span>
                   </div>
                 </div>
-                <div className="space-y-3 rounded-xl bg-background/60 p-3 sm:p-4">
+
+                <div className="space-y-3">
                   <div className="flex items-center justify-between gap-3">
                     <p className="text-sm font-medium text-foreground">Start and end</p>
                     <p className="text-xs text-muted-foreground">End time is calculated</p>
                   </div>
-                  <div className="flex items-center gap-3 rounded-lg bg-background/70 p-3">
+                  <div className="flex items-center gap-3">
                     <div className="min-w-0 flex-1">
                       <p className="text-xs text-muted-foreground">Starts</p>
                       <p className="mt-1 truncate text-lg font-semibold text-foreground sm:text-xl">
@@ -595,7 +628,7 @@ export function BookingEngine({ initialNow }: { initialNow: string }) {
                       className="min-h-12 px-3"
                     />
                   ) : (
-                    <p className="rounded-lg bg-background/70 px-3 py-2 text-sm text-muted-foreground">
+                    <p className="text-sm text-muted-foreground">
                       {hasAvailableTime
                         ? "Only one start time fits this session before closing."
                         : "There are no start times left for a full-hour session today."}
@@ -609,7 +642,7 @@ export function BookingEngine({ initialNow }: { initialNow: string }) {
                   </div>
                 </div>
               </div>
-            </div>
+            </section>
 
             {alternativeTables.length > 0 ? (
               <div className="space-y-2 rounded-xl border border-border bg-background/40 p-3">
@@ -640,7 +673,7 @@ export function BookingEngine({ initialNow }: { initialNow: string }) {
             <div className="-mx-4 space-y-4 py-3 sm:-mx-6 sm:py-4">
               <div className="flex items-center justify-between gap-3 px-4 sm:px-6">
                 <div>
-                  <p className="text-sm font-semibold text-foreground">Live availability</p>
+                  <p className="text-sm font-medium text-muted-foreground">Live availability</p>
                   <p className="mt-1 text-xs text-muted-foreground">
                     {selectedDate.day}, {selectedDate.date} · swipe to see later times
                   </p>
@@ -651,31 +684,41 @@ export function BookingEngine({ initialNow }: { initialNow: string }) {
                   </span>
                 ) : null}
               </div>
-              <Timeline
-                segments={timelineSegments}
-                requestedStart={requested}
-                duration={duration}
-                visibleStart={timelineStart}
-                earliestSelectableStart={earliestStart}
-                nowMinutes={dateOffset === 0 ? academyMinutesOfDay(now) : null}
-                focusKey={timelineFocusKey}
-                onPick={setStartTime}
-              />
-              <div className="flex flex-wrap gap-x-4 gap-y-2 px-4 text-xs text-muted-foreground sm:px-6">
-                <LegendDot className="bg-felt/70" label="Available" />
-                <LegendDot className="bg-red-500" label="Booked" />
-                <LegendDot className="bg-amber-400" label="Held" />
-                <LegendDot className="bg-blue-500" label="In use" />
-                <LegendDot className="bg-purple-500" label="Maintenance" />
-              </div>
               {bookingsLoading ? (
-                <p
-                  className="rounded-lg bg-background/70 px-3 py-2 text-sm text-muted-foreground"
+                <div
+                  className="space-y-3 px-4 sm:px-6"
                   role="status"
+                  aria-label={`Loading availability for ${table.name}`}
                 >
-                  <span className="px-4 sm:px-6">Loading live availability for {table.name}.</span>
-                </p>
-              ) : bookingsError ? (
+                  <Skeleton className="h-36 w-full rounded-xl" />
+                  <div className="flex gap-3">
+                    <Skeleton className="h-3 w-20" />
+                    <Skeleton className="h-3 w-16" />
+                    <Skeleton className="h-3 w-14" />
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <Timeline
+                    segments={timelineSegments}
+                    requestedStart={requested}
+                    duration={duration}
+                    visibleStart={timelineStart}
+                    earliestSelectableStart={earliestStart}
+                    nowMinutes={dateOffset === 0 ? academyMinutesOfDay(now) : null}
+                    focusKey={timelineFocusKey}
+                    onPick={setStartTime}
+                  />
+                  <div className="flex flex-wrap gap-x-4 gap-y-2 px-4 text-xs text-muted-foreground sm:px-6">
+                    <LegendDot className="bg-felt/70" label="Available" />
+                    <LegendDot className="bg-red-500" label="Booked" />
+                    <LegendDot className="bg-amber-400" label="Held" />
+                    <LegendDot className="bg-blue-500" label="In use" />
+                    <LegendDot className="bg-purple-500" label="Maintenance" />
+                  </div>
+                </>
+              )}
+              {bookingsLoading ? null : bookingsError ? (
                 <p
                   className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive"
                   role="alert"
@@ -742,10 +785,11 @@ export function BookingEngine({ initialNow }: { initialNow: string }) {
               </div>
               <div className="text-right">
                 <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">
-                  Table rate
+                  Estimated total
                 </p>
-                <p className="mt-1 text-xl font-bold text-felt">
-                  {formatPrice(table.hourlyRate)} / hr
+                <p className="mt-1 text-xl font-bold text-felt">{formatPrice(estimatedPrice)}</p>
+                <p className="text-xs text-muted-foreground">
+                  {formatPrice(table.hourlyRate)} / hr · {duration} min
                 </p>
               </div>
             </div>
@@ -801,8 +845,9 @@ export function BookingEngine({ initialNow }: { initialNow: string }) {
                 <span className="inline-flex min-h-9 items-center rounded-md border border-border bg-background px-3">
                   {table.type}
                 </span>
-                <span className="inline-flex min-h-9 items-center rounded-md border border-border bg-background px-3 text-felt">
-                  {formatPrice(table.hourlyRate)} / hour
+                <span className="inline-flex min-h-9 items-center gap-2 rounded-md border border-felt/30 bg-felt/10 px-3">
+                  <span className="text-xs text-muted-foreground">Estimated total</span>
+                  <span className="font-semibold text-felt">{formatPrice(estimatedPrice)}</span>
                 </span>
               </div>
             </div>

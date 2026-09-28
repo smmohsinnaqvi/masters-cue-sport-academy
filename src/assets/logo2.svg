@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="100%" height="100%">
+  <!-- Green App Background -->
+  <rect x="0" y="0" width="256" height="256" rx="56" fill="#0A5C27"/>
+  <rect x="0" y="0" width="256" height="256" rx="56" fill="none" stroke="#063b18" stroke-width="8" opacity="0.5"/>
+
+  <!-- Triangle Rack (Fully Rounded Bezier Path) -->
+  <!-- Drop Shadow -->
+  <path d="M 118,57 Q 128,40 138,57 L 214,187 Q 223,202 204,202 L 52,202 Q 33,202 42,187 Z" fill="none" stroke="#000000" stroke-width="24" stroke-linecap="round" stroke-linejoin="round" opacity="0.4"/>
+  
+  <!-- Outer Black Frame -->
+  <path d="M 118,55 Q 128,38 138,55 L 214,185 Q 223,200 204,200 L 52,200 Q 33,200 42,185 Z" fill="none" stroke="#111111" stroke-width="24" stroke-linecap="round" stroke-linejoin="round"/>
+  
+  <!-- Inner Gold Inlay -->
+  <path d="M 118,55 Q 128,38 138,55 L 214,185 Q 223,200 204,200 L 52,200 Q 33,200 42,185 Z" fill="none" stroke="#D4AF37" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+  
+  <!-- Core Black Center Line -->
+  <path d="M 118,55 Q 128,38 138,55 L 214,185 Q 223,200 204,200 L 52,200 Q 33,200 42,185 Z" fill="none" stroke="#111111" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- Diagonal Cue Stick -->
+  <!-- Shadow -->
+  <line x1="32" y1="222" x2="212" y2="52" stroke="#000000" stroke-width="12" stroke-linecap="round" opacity="0.4"/>
+  <!-- Wood Shaft -->
+  <line x1="30" y1="220" x2="210" y2="50" stroke="#DEB887" stroke-width="10" stroke-linecap="round"/>
+  <!-- Black Handle/Butt -->
+  <line x1="30" y1="220" x2="90" y2="163" stroke="#1A1A1A" stroke-width="12" stroke-linecap="round"/>
+  <!-- Handle Details (Gold Rings) -->
+  <line x1="80" y1="172" x2="85" y2="168" stroke="#D4AF37" stroke-width="12" stroke-linecap="round"/>
+
+  <!-- Red Billiard Ball (Upgraded 3D Depth) -->
+  <!-- Shadow -->
+  <circle cx="130" cy="142" r="38" fill="#000000" opacity="0.4"/>
+  <!-- Dark Edge Base -->
+  <circle cx="128" cy="140" r="38" fill="#8B0000"/>
+  <!-- Mid-tone Red -->
+  <circle cx="126" cy="138" r="34" fill="#CC0000"/>
+  <!-- Bright Center Gradient -->
+  <circle cx="122" cy="134" r="28" fill="#FA1A1A"/>
+  <!-- White Specular Highlight -->
+  <ellipse cx="112" cy="120" rx="12" ry="6" fill="#FFFFFF" opacity="0.8" transform="rotate(-30 112 120)"/>
+</svg>

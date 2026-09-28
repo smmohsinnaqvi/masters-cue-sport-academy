@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="100%" height="100%">
+  <!-- Triangle Rack -->
+  <!-- Drop Shadow -->
+  <polygon points="128,44 30,214 226,214" fill="none" stroke="#000000" stroke-width="16" stroke-linejoin="round" opacity="0.2"/>
+  <!-- Gold Frame -->
+  <polygon points="128,40 30,210 226,210" fill="none" stroke="#D4AF37" stroke-width="16" stroke-linejoin="round"/>
+  <!-- Inner Black Detail -->
+  <polygon points="128,40 30,210 226,210" fill="none" stroke="#111111" stroke-width="4" stroke-linejoin="round"/>
+
+  <!-- Diagonal Cue Stick -->
+  <!-- Shadow -->
+  <line x1="32" y1="222" x2="212" y2="52" stroke="#000000" stroke-width="12" stroke-linecap="round" opacity="0.3"/>
+  <!-- Wood Shaft -->
+  <line x1="30" y1="220" x2="210" y2="50" stroke="#DEB887" stroke-width="10" stroke-linecap="round"/>
+  <!-- Black Handle/Butt -->
+  <line x1="30" y1="220" x2="90" y2="163" stroke="#1A1A1A" stroke-width="12" stroke-linecap="round"/>
+  <!-- Handle Details (Gold Rings) -->
+  <line x1="80" y1="172" x2="85" y2="168" stroke="#D4AF37" stroke-width="12" stroke-linecap="round"/>
+
+  <!-- Red Billiard Ball -->
+  <!-- Shadow -->
+  <circle cx="130" cy="142" r="38" fill="#000000" opacity="0.3"/>
+  <!-- Red Base -->
+  <circle cx="128" cy="140" r="38" fill="#CC0000"/>
+  <!-- Inner Gradient/Depth (Simplified as darker offset) -->
+  <circle cx="132" cy="144" r="34" fill="#AA0000"/>
+  <circle cx="126" cy="138" r="32" fill="#CC0000"/>
+  <!-- White Highlight -->
+  <ellipse cx="112" cy="120" rx="10" ry="6" fill="#FFFFFF" opacity="0.7" transform="rotate(-30 112 120)"/>
+</svg>

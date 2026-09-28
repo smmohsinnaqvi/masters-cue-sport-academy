@@ -22,6 +22,7 @@ export function useLiveTables() {
 
         if (isMounted) {
           setTables(nextTables);
+          setError(null);
         }
       } catch (loadError) {
         if (isMounted) {

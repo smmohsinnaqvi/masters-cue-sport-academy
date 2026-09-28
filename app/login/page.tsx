@@ -7,6 +7,7 @@ import { Suspense, useEffect, useState } from "react";
 
 import { currentAcademySessionAction, loginAction } from "@/actions/auth-actions";
 import { Button } from "@/components/ui/button";
+import { PageLoading } from "@/components/layout/page-state";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { UserRole } from "@/lib/auth";
@@ -150,13 +151,7 @@ function LoginContent() {
 
 export default function LoginPage() {
   return (
-    <Suspense
-      fallback={
-        <div className="flex min-h-screen items-center justify-center text-sm text-muted-foreground">
-          Loading login...
-        </div>
-      }
-    >
+    <Suspense fallback={<PageLoading variant="login" />}>
       <LoginContent />
     </Suspense>
   );

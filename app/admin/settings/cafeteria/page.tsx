@@ -10,6 +10,7 @@ import {
   updateCafeteriaItemAction,
 } from "@/actions/admin-actions";
 import { RoleGate } from "@/components/auth/role-gate";
+import { SettingsListSkeleton } from "@/components/admin/settings-skeleton";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -122,7 +123,7 @@ export default function CafeteriaSettingsPage() {
           </form>
           {error ? <p className="text-sm text-destructive">{error}</p> : null}
           {loading ? (
-            <p className="text-sm text-muted-foreground">Loading cafeteria items…</p>
+            <SettingsListSkeleton variant="compact" />
           ) : items.length === 0 ? (
             <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
               No cafeteria items yet. Add the first item.

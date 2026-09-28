@@ -1,13 +1,12 @@
 export const ACADEMY = {
   name: "Masters Cue Sport Academy",
   tagline: "Tournament-grade snooker & pool, coaching and a proper cue-sport clubhouse.",
-  // Placeholder details — share the real ones and they will be swapped in.
-  address: "2nd Floor, Skyline Plaza, MG Road, Bengaluru 560001",
+  address: "1st floor, Zahira complex, Hardoi road, Balaganj, Lucknow. 226003",
   phone: "+91 90000 00000",
   email: "play@masterscue.example",
   hours: "Open daily, 10:00 AM – 11:00 PM",
-  mapQuery: "Masters Cue Sport Academy MG Road Bengaluru",
-  isPlaceholderInfo: true,
+  mapQuery: "1st floor, Zahira complex, Hardoi road, Balaganj, Lucknow. 226003",
+  isPhonePlaceholder: true,
 };
 
 export const AMBIENCE = [
@@ -51,7 +50,7 @@ export const FACILITIES = [
     body: "Structured programmes with a state-level trainer, video stance analysis and match-play simulation.",
   },
   {
-    title: "Tournaments & leagues",
+    title: "Events",
     body: "Weekend blitz events, junior cups and a state-level open with live scoreboards and seeded draws.",
   },
 ];

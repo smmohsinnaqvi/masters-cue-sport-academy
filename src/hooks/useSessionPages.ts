@@ -38,7 +38,7 @@ export function useSessionPages(
   const [items, setItems] = useState<SessionPageRow[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(true);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
   const scrollRootRef = useRef<HTMLDivElement>(null);

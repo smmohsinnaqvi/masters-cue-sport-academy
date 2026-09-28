@@ -2,8 +2,11 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Activity, LogOut, Menu } from "lucide-react";
+import Image from "next/image";
+import { LogOut, Menu } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+
+import logoImage from "@/assets/logo2.svg";
 
 import { currentAcademySessionAction, logoutAction } from "@/actions/auth-actions";
 import { Button } from "@/components/ui/button";
@@ -60,8 +63,14 @@ export function SiteHeader() {
     <header className="sticky top-0 z-40 border-b border-border bg-background/85 backdrop-blur">
       <nav className="mx-auto flex max-w-7xl items-center justify-between gap-3 px-4 py-3 sm:px-6 lg:px-8">
         <Link href="/" className="flex min-h-12 items-center gap-3 pr-2">
-          <span className="flex h-11 w-11 items-center justify-center rounded-md border border-felt/35 bg-felt/15 shadow-[var(--shadow-felt)]">
-            <Activity className="h-5 w-5 text-felt" aria-hidden="true" />
+          <span className="flex h-11 w-11 items-center justify-center rounded-md p-1">
+            <Image
+              src={logoImage}
+              alt=""
+              aria-hidden="true"
+              className="h-full w-full object-contain"
+              priority
+            />
           </span>
           <span className="leading-tight">
             <span className="block text-sm font-semibold">{ACADEMY.name}</span>

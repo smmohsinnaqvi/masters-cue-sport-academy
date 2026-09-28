@@ -10,6 +10,7 @@ import {
   updateTournamentAction,
 } from "@/actions/admin-actions";
 import { RoleGate } from "@/components/auth/role-gate";
+import { SettingsListSkeleton } from "@/components/admin/settings-skeleton";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -159,7 +160,7 @@ export default function TournamentSettingsPage() {
           </form>
           {error ? <p className="text-sm text-destructive">{error}</p> : null}
           {loading ? (
-            <p className="text-sm text-muted-foreground">Loading tournaments…</p>
+            <SettingsListSkeleton />
           ) : items.length === 0 ? (
             <Empty text="No tournaments yet. Add one when you are ready." />
           ) : (
