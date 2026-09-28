@@ -1,8 +1,6 @@
 {
-  "/api/tables/route": "app/api/tables/route.js",
   "/api/tables/availability/route": "app/api/tables/availability/route.js",
-  "/admin/page": "app/admin/page.js",
+  "/api/tables/route": "app/api/tables/route.js",
   "/page": "app/page.js",
-  "/supervisor/page": "app/supervisor/page.js",
   "/booking/page": "app/booking/page.js"
 }

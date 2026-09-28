@@ -43,10 +43,22 @@ export async function createOnlineBookingAction(input: {
 
   const startTime = date(input.slotStart);
   const endTime = date(input.slotEnd);
-  const durationMinutes = Math.ceil((endTime.getTime() - startTime.getTime()) / 60_000);
-  if (durationMinutes <= 0) throw new Error("Booking end time must be after start time");
+  const durationMilliseconds = endTime.getTime() - startTime.getTime();
+  if (durationMilliseconds <= 0 || durationMilliseconds % 60_000 !== 0) {
+    throw new Error("Booking end time must be after start time on a whole-minute boundary");
+  }
+  const durationMinutes = durationMilliseconds / 60_000;
   const startMinute = academyMinutesOfDay(startTime);
   const endMinute = academyMinutesOfDay(endTime);
+  if (
+    durationMinutes < 60 ||
+    durationMinutes % 15 !== 0 ||
+    startMinute % 15 !== 0 ||
+    startTime.getSeconds() !== 0 ||
+    startTime.getMilliseconds() !== 0
+  ) {
+    throw new Error("Bookings must be at least 1 hour and use 15-minute start and duration steps");
+  }
   if (
     startTime <= new Date() ||
     startMinute < 10 * 60 ||

@@ -1,15 +1,10 @@
 import type { BookingRecord, Table } from "@/types/operations";
+import { academyDateKeyForOffset, academyMinutesOfDay } from "@/lib/academy-time";
 
 export const OPEN_START = 10 * 60; // 10:00
 export const OPEN_END = 23 * 60; // 23:00
-export const STEP = 30; // minutes between selectable start times
-
-export const DURATIONS = [
-  { minutes: 60, label: "1 hr" },
-  { minutes: 90, label: "1.5 hrs" },
-  { minutes: 120, label: "2 hrs" },
-  { minutes: 180, label: "3 hrs" },
-];
+export const BOOKING_STEP_MINUTES = 15;
+export const MIN_BOOKING_DURATION_MINUTES = 60;
 
 export type TableAvailability = "FREE" | "PARTIAL" | "FULL";
 
@@ -29,10 +24,6 @@ export function formatPrice(value: number) {
   }).format(value);
 }
 
-export function sessionPrice(table: Table, durationMinutes: number) {
-  return Math.round((table.hourlyRate * durationMinutes) / 60);
-}
-
 export interface DateOption {
   offset: number;
   id: string;
@@ -41,15 +32,16 @@ export interface DateOption {
   isToday: boolean;
 }
 
-export function buildDateOptions(count = 7): DateOption[] {
-  const base = new Date();
+export function buildDateOptions(count = 7, now = new Date()): DateOption[] {
   return Array.from({ length: count }, (_, offset) => {
-    const d = new Date(base.getTime() + offset * 86400000);
-    const day = d.toLocaleDateString("en-IN", { weekday: "short", timeZone: "Asia/Kolkata" });
-    const date = d.toLocaleDateString("en-IN", {
+    const dateKey = academyDateKeyForOffset(offset, now);
+    const [year, month, dayOfMonth] = dateKey.split("-").map(Number);
+    const academyDate = new Date(Date.UTC(year!, month! - 1, dayOfMonth!, 12));
+    const day = academyDate.toLocaleDateString("en-IN", { weekday: "short", timeZone: "UTC" });
+    const date = academyDate.toLocaleDateString("en-IN", {
       day: "numeric",
       month: "short",
-      timeZone: "Asia/Kolkata",
+      timeZone: "UTC",
     });
     return {
       offset,
@@ -81,9 +73,29 @@ export function isRangeFree(
   return bookingsFor(tableId, dateOffset, extra).every((b) => end <= b.start || start >= b.end);
 }
 
-export function startOptions() {
+export function ceilToBookingStep(minutes: number) {
+  return Math.ceil(minutes / BOOKING_STEP_MINUTES) * BOOKING_STEP_MINUTES;
+}
+
+export function bookingTimeBounds(dateOffset: number, duration: number, now = new Date()) {
+  const earliestStart =
+    dateOffset === 0
+      ? Math.max(OPEN_START, ceilToBookingStep(academyMinutesOfDay(now) + 1))
+      : OPEN_START;
+  const latestStart = OPEN_END - duration;
+  return { earliestStart, latestStart, hasAvailableTime: earliestStart <= latestStart };
+}
+
+export function startOptions(earliestStart = OPEN_START) {
   const starts: number[] = [];
-  for (let t = OPEN_START; t <= OPEN_END - 60; t += STEP) starts.push(t);
+  const firstStart = Math.max(OPEN_START, ceilToBookingStep(earliestStart));
+  for (
+    let t = firstStart;
+    t <= OPEN_END - MIN_BOOKING_DURATION_MINUTES;
+    t += BOOKING_STEP_MINUTES
+  ) {
+    starts.push(t);
+  }
   return starts;
 }
 
@@ -92,8 +104,11 @@ export function freeStarts(
   dateOffset: number,
   duration: number,
   extra: BookingRecord[] = [],
+  earliestStart = OPEN_START,
 ) {
-  return startOptions().filter((s) => isRangeFree(tableId, dateOffset, s, duration, extra));
+  return startOptions(earliestStart).filter((s) =>
+    isRangeFree(tableId, dateOffset, s, duration, extra),
+  );
 }
 
 export function tableAvailability(
@@ -117,12 +132,13 @@ export function suggestAlternatives(
   preferredStart: number,
   tables: Table[],
   extra: BookingRecord[] = [],
+  earliestStart = OPEN_START,
 ) {
   const source = tables.find((t) => t.id === tableId);
   return tables
     .filter((t) => t.isActive && t.id !== tableId && t.type === source?.type)
     .map((table) => {
-      const options = freeStarts(table.id, dateOffset, duration, extra);
+      const options = freeStarts(table.id, dateOffset, duration, extra, earliestStart);
       if (options.length === 0) return null;
       const closest = options.reduce((best, current) =>
         Math.abs(current - preferredStart) < Math.abs(best - preferredStart) ? current : best,
@@ -139,15 +155,6 @@ export function suggestAlternatives(
 export function toTimeInput(minutes: number) {
   const h = Math.floor(minutes / 60) % 24;
   return `${String(h).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
-}
-
-export function fromTimeInput(value: string): number | null {
-  const match = /^(\d{1,2}):(\d{2})$/.exec(value.trim());
-  if (!match) return null;
-  const h = Number(match[1]);
-  const m = Number(match[2]);
-  if (h > 23 || m > 59) return null;
-  return h * 60 + m;
 }
 
 export type SegmentKind = "FREE" | "BOOKED" | "HELD" | "ONGOING" | "MAINTENANCE";
@@ -226,13 +233,14 @@ export function nextFreeStart(
   duration: number,
   from: number,
   extra: BookingRecord[] = [],
+  earliestStart = OPEN_START,
 ): number | null {
-  let candidate = Math.max(from, OPEN_START);
+  let candidate = Math.max(ceilToBookingStep(from), earliestStart, OPEN_START);
   for (let guard = 0; guard < 64; guard += 1) {
     if (candidate + duration > OPEN_END) return null;
     const clash = conflictFor(tableId, dateOffset, candidate, duration, extra);
     if (!clash) return candidate;
-    candidate = clash.end;
+    candidate = ceilToBookingStep(clash.end);
   }
   return null;
 }

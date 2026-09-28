@@ -6,7 +6,11 @@ import { academyDateKeyForOffset, academyDateOffset } from "@/lib/academy-time";
 import { normalizeBooking } from "@/lib/real-data";
 import { supabase } from "@/lib/supabase";
 
-export function useLiveBookings(selectedDateOffset = 0) {
+export function useLiveBookings(
+  selectedDateOffset = 0,
+  selectedDateKey = academyDateKeyForOffset(selectedDateOffset),
+  days = 1,
+) {
   const [bookings, setBookings] = useState<BookingRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -21,8 +25,8 @@ export function useLiveBookings(selectedDateOffset = 0) {
 
     async function load() {
       try {
-        const dateKey = academyDateKeyForOffset(selectedDateOffset);
-        const response = await fetch(`/api/tables/availability?date=${dateKey}`, {
+        const search = new URLSearchParams({ date: selectedDateKey, days: String(days) });
+        const response = await fetch(`/api/tables/availability?${search.toString()}`, {
           cache: "no-store",
         });
         const payload = (await response.json()) as {
@@ -62,6 +66,7 @@ export function useLiveBookings(selectedDateOffset = 0) {
         });
         if (mounted) {
           setBookings(next);
+          setError(null);
           clearExtensionTimer();
           if (selectedDateOffset === 0) {
             const nextWalkInEnd = (payload.sessions ?? [])
@@ -90,6 +95,9 @@ export function useLiveBookings(selectedDateOffset = 0) {
       }
     }
 
+    setLoading(true);
+    setError(null);
+    setBookings([]);
     void load();
     const channel = supabase
       .channel("realtime-sessions")
@@ -104,7 +112,7 @@ export function useLiveBookings(selectedDateOffset = 0) {
       clearExtensionTimer();
       void channel.unsubscribe();
     };
-  }, [selectedDateOffset]);
+  }, [days, selectedDateKey, selectedDateOffset]);
 
   return { bookings, loading, error };
 }
