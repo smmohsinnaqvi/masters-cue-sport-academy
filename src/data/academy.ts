@@ -30,11 +30,11 @@ export const AMBIENCE = [
 
 export const FACILITIES = [
   {
-    title: "6 snooker tables, one identical spec",
-    body: "Six 12ft Rasson Magnum II tables with Strachan 6811 Gold tournament cloth and steel block cushions — practise on any table, play the same conditions.",
+    title: "Snooker tables",
+    body: "Four 12ft Sharma S1 Pro tables, fitted with Strachan 6811 tournament cloth and steel block cushions — practise on any table, play with the same consistent conditions.",
   },
   {
-    title: "2 pool tables",
+    title: "Pool tables",
     body: "Two 9ft Rasson Ox pool tables on Simonis 860 for 8-ball and 9-ball racks, leagues and casual sessions.",
   },
   {

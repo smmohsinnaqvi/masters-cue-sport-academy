@@ -287,9 +287,9 @@ export function BookingEngine({ initialNow }: { initialNow: string }) {
               </div>
               <div className="space-y-3">
                 <Skeleton className="h-4 w-28" />
-                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                <div className="grid grid-cols-2 gap-2 sm:gap-3">
                   {Array.from({ length: 6 }, (_, index) => (
-                    <Skeleton key={index} className="h-28 rounded-xl sm:h-32" />
+                    <Skeleton key={index} className="h-[8.25rem] rounded-xl sm:h-[9.5rem]" />
                   ))}
                 </div>
               </div>
@@ -400,7 +400,7 @@ export function BookingEngine({ initialNow }: { initialNow: string }) {
                     setTableId(nextTable.id);
                   }}
                   className={cn(
-                    "min-h-9 rounded-full px-3 text-xs sm:px-4 sm:text-sm",
+                    "min-h-10 rounded-full px-3 text-xs sm:px-4 sm:text-sm",
                     tableType === type && "bg-primary text-primary-foreground",
                   )}
                 >
@@ -451,7 +451,7 @@ export function BookingEngine({ initialNow }: { initialNow: string }) {
                     ? "Loading"
                     : "Unavailable"
                   : freeStartsCount === 0
-                    ? "No full-hour slots"
+                    ? "No slots"
                     : activeBooking
                       ? activeBooking.status === "ONGOING"
                         ? "In use"
@@ -481,21 +481,24 @@ export function BookingEngine({ initialNow }: { initialNow: string }) {
                     onClick={() => handleTableSelect(tableOption)}
                     aria-pressed={selected}
                     className={cn(
-                      "min-h-28 rounded-xl border-2 p-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-felt sm:min-h-32 sm:rounded-2xl sm:p-4",
+                      "min-h-[8.25rem] rounded-xl border-2 p-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-felt sm:min-h-[9.5rem] sm:rounded-2xl sm:p-4",
                       selected
                         ? "border-felt bg-felt/10"
                         : "border-border/70 bg-surface hover:border-border hover:bg-surface-strong",
                     )}
                   >
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
+                    <div className="flex min-w-0 items-start justify-between gap-1.5">
+                      <div className="min-w-0">
                         <p className="text-sm font-semibold sm:text-base">{tableOption.name}</p>
                         <p className="mt-1 text-xs uppercase tracking-[0.16em] text-muted-foreground">
                           {tableOption.type === "SNOOKER" ? "Snooker" : "Pool"}
                         </p>
                       </div>
                       <span
-                        className={cn("rounded-full px-2 py-1 text-[10px] font-medium", statusTone)}
+                        className={cn(
+                          "shrink-0 whitespace-nowrap rounded-full px-1.5 py-1 text-[9px] font-medium sm:px-2 sm:text-[10px]",
+                          statusTone,
+                        )}
                       >
                         {bookingsLoading ? (
                           <Skeleton className="h-3 w-10 rounded-full" />
@@ -505,15 +508,13 @@ export function BookingEngine({ initialNow }: { initialNow: string }) {
                       </span>
                     </div>
 
-                    <div className="mt-3 flex items-center justify-between gap-1 text-xs text-muted-foreground sm:mt-4 sm:text-sm">
-                      <span className="whitespace-nowrap">
-                        {formatPrice(tableOption.hourlyRate)} / hr
-                      </span>
-                    </div>
+                    <p className="mt-3 text-xs text-muted-foreground sm:mt-4 sm:text-sm">
+                      {formatPrice(tableOption.hourlyRate)} / hr
+                    </p>
                     {bookingsLoading ? (
                       <Skeleton className="mt-2 h-3 w-32" />
                     ) : (
-                      <p className="mt-2 text-xs text-muted-foreground">
+                      <p className="mt-2 min-h-7 text-xs leading-4 text-muted-foreground">
                         {!availabilityReady
                           ? bookingsLoading
                             ? "Checking live availability"
@@ -762,28 +763,27 @@ export function BookingEngine({ initialNow }: { initialNow: string }) {
             </div>
 
             {requestedIsFree ? (
-              <div className="rounded-xl bg-felt/10 p-3">
+              <div className="rounded-xl border border-felt/20 bg-felt/10 p-3">
                 <p
-                  className="flex items-center gap-2 text-sm font-semibold text-felt"
+                  className="flex items-center gap-2 text-sm font-semibold leading-5 text-felt"
                   role="status"
                 >
-                  <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
-                  {table.name} is free from {formatTime(requested)} to{" "}
-                  {formatTime(requested + duration)}
+                  <CheckCircle2 className="h-4 w-4 shrink-0" aria-hidden="true" />
+                  <span className="min-w-0">{table.name} is available for your selected time</span>
                 </p>
               </div>
             ) : null}
 
-            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-background/70 p-3 sm:p-4">
-              <div>
+            <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-3 rounded-xl border border-border/70 bg-background/70 p-3 sm:p-4">
+              <div className="min-w-0">
                 <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">
                   Your choice
                 </p>
-                <p className="mt-1 text-base font-semibold text-foreground">
+                <p className="mt-1 text-sm font-semibold leading-snug text-foreground sm:text-base">
                   {table.name} · {selectedDate.day}, {selectedDate.date}
                 </p>
               </div>
-              <div className="text-right">
+              <div className="shrink-0 text-right">
                 <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">
                   Estimated total
                 </p>
@@ -792,22 +792,23 @@ export function BookingEngine({ initialNow }: { initialNow: string }) {
                   {formatPrice(table.hourlyRate)} / hr · {duration} min
                 </p>
               </div>
+              <div className="col-span-2 flex min-w-0 items-center gap-2 border-t border-border/70 pt-2 text-sm text-muted-foreground">
+                <Clock3 className="h-4 w-4 shrink-0 text-felt" aria-hidden="true" />
+                <span className="min-w-0">
+                  {requestedIsFree
+                    ? `${formatTime(requested)} – ${formatTime(requested + duration)}`
+                    : "Choose a free slot"}
+                </span>
+              </div>
             </div>
           </div>
 
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="inline-flex items-center gap-2 text-sm text-muted-foreground">
-              <Clock3 className="h-4 w-4 text-felt" aria-hidden="true" />
-              {requestedIsFree
-                ? `${formatTime(requested)} - ${formatTime(requested + duration)}`
-                : "Choose a free slot"}
-            </div>
-
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end">
             <Button
               type="button"
               onClick={openHoldDrawer}
               disabled={!requestedIsFree}
-              className="min-h-12 gap-2 px-6"
+              className="min-h-12 w-full gap-2 px-6 sm:w-auto"
             >
               Book now
               <ArrowRight className="h-4 w-4" aria-hidden="true" />
