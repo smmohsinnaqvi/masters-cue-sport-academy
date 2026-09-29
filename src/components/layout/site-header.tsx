@@ -34,6 +34,7 @@ export function SiteHeader() {
     const items = [
       { to: "/", label: "Home" },
       { to: "/services", label: "Services" },
+      { to: "/shop", label: "Shop" },
       { to: "/booking", label: "Booking" },
     ];
 
@@ -88,7 +89,7 @@ export function SiteHeader() {
           </span>
         </Link>
 
-        <div className="hidden items-center gap-1 md:flex">
+        <div className="hidden items-center gap-1 lg:flex">
           {nav.map((item) => {
             const isActive = item.to === "/" ? pathname === "/" : pathname.startsWith(item.to);
             return (
@@ -123,7 +124,7 @@ export function SiteHeader() {
           )}
         </div>
 
-        <div className="flex shrink-0 items-center gap-2 md:hidden">
+        <div className="flex shrink-0 items-center gap-2 lg:hidden">
           <Button asChild className="min-h-11 rounded-full px-4">
             <Link href="/booking">Book</Link>
           </Button>
@@ -142,7 +143,7 @@ export function SiteHeader() {
 
       <div
         className={cn(
-          "border-t border-border/70 bg-background/95 px-4 pb-3 pt-2 backdrop-blur-xl md:hidden",
+          "border-t border-border/70 bg-background/95 px-4 pb-3 pt-2 backdrop-blur-xl lg:hidden",
           open ? "block" : "hidden",
         )}
       >

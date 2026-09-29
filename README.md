@@ -14,7 +14,8 @@ The application supports:
 - Public academy content is server-cached and invalidated by admin edits; live
   table availability and staff operations remain fresh.
 - Admin access to the supervisor view.
-- Admin settings routes for tournaments, cafeteria items, and hourly rates.
+- Admin settings routes for tournaments, cafeteria items, hourly rates, and shop products.
+- A public mobile-first pro shop with admin-managed products and percentage discounts.
 - Confirmation dialogs for booking and operations mutations.
 - Pending feedback for login, booking, and supervisor actions.
 - Loading and error states for the main routes.
@@ -72,13 +73,47 @@ Seed the physical tables:
 npm run db:seed
 ```
 
-The seed creates eight clean tables:
+The seed creates and activates six tables:
 
-- Snooker: `S1` through `S6`
+- Snooker: `T1` through `T4`
 - Pool: `P1` and `P2`
 
-The seed does **not** create dummy bookings, sessions, tournaments, or
-cafeteria items. It is safe to run repeatedly because it uses upserts.
+The seed deactivates any other tables without deleting their rows or session
+history. It does **not** create dummy bookings, sessions, tournaments, or
+cafeteria items; it preserves rates on existing tables and is safe to run
+repeatedly.
+
+## Pro shop
+
+Apply the shop database migration before running the app with shop pages:
+
+```powershell
+npm run db:migrate -- --name shop_products
+```
+
+The customer catalog is at `/shop`. Admins can manage its products in Admin
+Settings → Shop; product updates also appear in the customer catalog. Product
+discounts are percentages off the saved price. There is no cart or checkout.
+
+Seed the sample cue, tip, chalk, glove, case, and care-kit catalog:
+
+```powershell
+npm run db:seed-shop
+```
+
+This provisions a public-read `shop-products` Supabase Storage bucket and
+uploads locally authored sample artwork. The app issues signed upload URLs
+only after verifying an admin session; storage writes are not available to
+anonymous visitors. Admin uploads accept JPEG, PNG, WebP, and AVIF images up
+to 3 MB. The seed command refuses remote Supabase projects unless you add
+`--confirm-remote` after verifying the selected project:
+
+```powershell
+npm run db:seed-shop -- --confirm-remote
+```
+
+Keep Supabase service-role/secret keys server-only and configure them through
+the ignored environment files or Vercel environment settings.
 
 Start the development server:
 
@@ -198,7 +233,7 @@ npm run db:migrate
 # Apply committed migrations in a deployed environment
 npx prisma migrate deploy
 
-# Seed S1-S6 and P1-P2
+# Seed T1-T4 and P1-P2
 npm run db:seed
 
 # Open Prisma Studio

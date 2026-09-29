@@ -65,8 +65,8 @@ export default async function AdminPage() {
           <CardContent className="p-4 sm:p-6">
             <h2 className="text-lg font-semibold">Academy settings</h2>
             <p className="mt-2 max-w-xl text-sm text-muted-foreground">
-              Manage tournaments, cafeteria items, and hourly rates. Changes are saved to the
-              academy database.
+              Manage tournaments, cafeteria items, hourly rates, and shop products. Changes are
+              saved to the academy database.
             </p>
             <Button asChild className="mt-5 min-h-11 w-full sm:w-auto">
               <Link href="/admin/settings">Open settings</Link>

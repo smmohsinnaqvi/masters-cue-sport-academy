@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { MapPin, Phone, Clock3, Trophy } from "lucide-react";
+import { MapPin, Phone, Clock3, ShoppingCart, Trophy } from "lucide-react";
 
 import heroImage from "@/assets/mcsa-hero.png";
 import { Section } from "@/components/home/section";
@@ -51,9 +51,12 @@ export default async function HomePage() {
               <Button
                 asChild
                 variant="outline"
-                className="min-h-12 w-full border-border bg-surface/70 sm:w-auto"
+                className="min-h-12 w-full gap-2.5 border-felt/30 bg-felt/10 font-semibold text-foreground hover:border-felt/50 hover:bg-felt/15 sm:w-auto [&_svg]:size-5"
               >
-                <Link href="/services">See facilities</Link>
+                <Link href="/shop">
+                  <ShoppingCart aria-hidden="true" />
+                  Shop
+                </Link>
               </Button>
             </div>
           </div>

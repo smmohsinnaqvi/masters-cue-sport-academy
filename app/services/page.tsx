@@ -18,7 +18,13 @@ export default async function ServicesPage() {
           Tables, cafe and academy facilities, with current rates.
         </p>
 
-        <h2 className="mt-12 text-2xl font-bold">Tables & hourly rates</h2>
+        <div className="mt-12 flex flex-wrap items-end justify-between gap-2">
+          <h2 className="text-2xl font-bold">Tables & hourly rates</h2>
+          <p className="text-sm text-muted-foreground">
+            {tables.filter((table) => table.type === "SNOOKER").length} snooker ·{" "}
+            {tables.filter((table) => table.type === "POOL").length} pool
+          </p>
+        </div>
         <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {tables.map((table) => (
             <Card key={table.id} className="border-border bg-surface">

@@ -8,12 +8,7 @@ import { academyDayUtcBounds, academyDateKey } from "@/lib/academy-time";
 const getCachedPublicAcademyContent = unstable_cache(
   async (dateKey: string) => {
     const today = academyDayUtcBounds(dateKey).start;
-    const [tables, cafeteriaItems, tournaments] = await Promise.all([
-      prisma.table.findMany({
-        where: { isActive: true },
-        orderBy: { name: "asc" },
-        select: { id: true, name: true, type: true, hourlyRate: true },
-      }),
+    const [cafeteriaItems, tournaments] = await Promise.all([
       prisma.cafeteriaItem.findMany({
         where: { isActive: true },
         orderBy: { name: "asc" },
@@ -25,12 +20,20 @@ const getCachedPublicAcademyContent = unstable_cache(
         select: { id: true, title: true, date: true, entryFee: true, prizePool: true },
       }),
     ]);
-    return { tables, cafeteriaItems, tournaments };
+    return { cafeteriaItems, tournaments };
   },
   ["public-academy-content"],
   { revalidate: 3600, tags: ["public-academy-content"] },
 );
 
-export function getPublicAcademyContent() {
-  return getCachedPublicAcademyContent(academyDateKey());
+export async function getPublicAcademyContent() {
+  const [tables, cachedContent] = await Promise.all([
+    prisma.table.findMany({
+      where: { isActive: true },
+      orderBy: { name: "asc" },
+      select: { id: true, name: true, type: true, hourlyRate: true },
+    }),
+    getCachedPublicAcademyContent(academyDateKey()),
+  ]);
+  return { tables, ...cachedContent };
 }

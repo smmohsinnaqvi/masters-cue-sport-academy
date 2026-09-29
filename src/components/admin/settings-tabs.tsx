@@ -8,6 +8,7 @@ const tabs = [
   { href: "/admin/settings/tournaments", label: "Tournaments" },
   { href: "/admin/settings/cafeteria", label: "Cafeteria" },
   { href: "/admin/settings/rates", label: "Hourly rates" },
+  { href: "/admin/settings/shop", label: "Shop" },
 ];
 
 export function SettingsTabs() {

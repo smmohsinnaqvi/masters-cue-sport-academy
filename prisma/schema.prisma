@@ -13,6 +13,15 @@ enum TableType {
   POOL
 }
 
+enum ShopProductCategory {
+  CUES
+  TIPS
+  CHALK
+  GLOVES
+  CASES
+  ACCESSORIES
+}
+
 enum SessionSource {
   ONLINE
   WALKIN
@@ -75,6 +84,23 @@ model CafeteriaItem {
 
   @@index([isActive, name])
   @@map("cafeteria_items")
+}
+
+model ShopProduct {
+  id              String              @id @default(cuid())
+  name            String
+  description     String
+  imagePath       String              @map("image_path")
+  category        ShopProductCategory
+  price           Int
+  discountPercent Int                 @default(0) @map("discount_percent")
+  isActive        Boolean             @default(true) @map("is_active")
+  createdAt       DateTime            @default(now()) @map("created_at")
+  updatedAt       DateTime            @updatedAt @map("updated_at")
+
+  @@index([isActive, category, name])
+  @@index([createdAt(sort: Desc)])
+  @@map("shop_products")
 }
 
 model Session {

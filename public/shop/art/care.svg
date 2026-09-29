@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 800">
+  <defs>
+    <linearGradient id="bg" x2="1" y2="1">
+      <stop stop-color="#3b2f20"/>
+      <stop offset="1" stop-color="#17140f"/>
+    </linearGradient>
+    <linearGradient id="bottle" x2="1">
+      <stop stop-color="#2ba56a"/>
+      <stop offset=".5" stop-color="#12573f"/>
+      <stop offset="1" stop-color="#0b382b"/>
+    </linearGradient>
+  </defs>
+  <rect width="800" height="800" rx="54" fill="url(#bg)"/>
+  <circle cx="400" cy="386" r="250" fill="none" stroke="#d7b775" stroke-opacity=".2" stroke-width="2"/>
+  <path d="M325 250h150l30 47v280c0 28-22 50-50 50H345c-28 0-50-22-50-50V297z" fill="url(#bottle)" stroke="#b9aa7c" stroke-width="5"/>
+  <path d="M355 250v-44h90v44m-73-44v-31h56v31" fill="#c5a565" stroke="#e5d2a6" stroke-width="4"/>
+  <rect x="315" y="369" width="170" height="119" rx="10" fill="#e9dfc5"/>
+  <path d="M338 397h124M338 421h82" stroke="#27503e" stroke-width="9" stroke-linecap="round"/>
+  <path d="m401 443 22 38h-44z" fill="#c9a860"/>
+  <path d="M224 566c37-33 74-39 112-19m128-2c40-25 77-24 113 8" fill="none" stroke="#87b79a" stroke-opacity=".7" stroke-width="5" stroke-linecap="round"/>
+  <text x="400" y="700" fill="#f5dfb5" font-family="Arial,sans-serif" font-size="23" letter-spacing="8" text-anchor="middle">CUE CARE KIT</text>
+</svg>
