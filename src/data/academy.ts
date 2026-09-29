@@ -35,7 +35,7 @@ export const FACILITIES = [
   },
   {
     title: "Pool tables",
-    body: "Two 9ft Rasson Ox pool tables on Simonis 860 for 8-ball and 9-ball racks, leagues and casual sessions.",
+    body: "Two 6ft sharma pool tables for 8 ball 9 ball racks, leagues and casual sessions.",
   },
   {
     title: "Cue & Cup Cafe",
