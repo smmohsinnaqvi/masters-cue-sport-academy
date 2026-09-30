@@ -94,23 +94,3 @@ export async function getBookingByIdAction(sessionId: string) {
   await requireAcademyRole("supervisor");
   return prisma.session.findUnique({ where: { id: sessionId } });
 }
-
-export async function recordOnlinePaymentAction(
-  sessionId: string,
-  paymentMethod: "CASH" | "UPI" | "CARD",
-) {
-  await requireAcademyRole("supervisor");
-  const result = await prisma.session.updateMany({
-    where: {
-      id: sessionId,
-      source: "ONLINE",
-      status: { in: ["CONFIRMED", "ONGOING", "COMPLETED"] },
-      paymentStatus: "UNPAID",
-      amount: { not: null },
-    },
-    data: { paymentStatus: paymentMethod },
-  });
-  if (result.count !== 1)
-    throw new Error("This booking cannot accept payment in its current state");
-  return prisma.session.findUniqueOrThrow({ where: { id: sessionId } });
-}

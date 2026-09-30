@@ -7,6 +7,7 @@ import {
   ArrowUpRight,
   BadgePercent,
   Check,
+  Eye,
   PencilLine,
   Plus,
   Search,
@@ -95,6 +96,7 @@ export function ShopCatalog({
   const [activeCategory, setActiveCategory] = useState<ShopCategory | "ALL">("ALL");
   const [search, setSearch] = useState("");
   const [editor, setEditor] = useState<EditorState>(null);
+  const [detailsProduct, setDetailsProduct] = useState<ShopProductView | null>(null);
   const [pendingDelete, setPendingDelete] = useState<ShopProductView | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [notice, setNotice] = useState("");
@@ -354,6 +356,17 @@ export function ShopCatalog({
                       </>
                     ) : null}
                   </div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={() => setDetailsProduct(product)}
+                    aria-haspopup="dialog"
+                    aria-label={`View details for ${product.name}`}
+                    className="mt-2 min-h-10 justify-start gap-2 px-2 text-felt hover:text-felt"
+                  >
+                    <Eye className="h-4 w-4" aria-hidden="true" />
+                    View details
+                  </Button>
                 </div>
               </Card>
             );
@@ -365,6 +378,65 @@ export function ShopCatalog({
         <ArrowUpRight className="h-3.5 w-3.5 text-felt" aria-hidden="true" />
         Visit the academy to see or try any item in person.
       </p>
+
+      <Dialog
+        open={detailsProduct !== null}
+        onOpenChange={(open) => {
+          if (!open) setDetailsProduct(null);
+        }}
+      >
+        {detailsProduct ? (
+          <DialogContent className="max-h-[calc(100svh-1rem)] w-[calc(100%-1rem)] max-w-2xl overflow-y-auto rounded-2xl p-4 sm:max-h-[calc(100vh-4rem)] sm:p-6">
+            <DialogHeader className="pr-8 text-left">
+              <DialogTitle className="text-xl sm:text-2xl">{detailsProduct.name}</DialogTitle>
+              <DialogDescription>Complete product details</DialogDescription>
+            </DialogHeader>
+            <div className="relative h-56 w-full overflow-hidden rounded-xl bg-background/70 sm:h-80">
+              <Image
+                src={detailsProduct.imageUrl}
+                alt={detailsProduct.name}
+                fill
+                unoptimized
+                sizes="(min-width: 640px) 672px, 100vw"
+                className="object-contain"
+              />
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="rounded-full border border-border/80 bg-background/70 px-3 py-1 text-xs font-semibold">
+                {CATEGORY_LABELS[detailsProduct.category]}
+              </span>
+              {detailsProduct.discountPercent > 0 ? (
+                <span className="inline-flex items-center gap-1 rounded-full bg-felt/15 px-3 py-1 text-xs font-semibold text-felt">
+                  <BadgePercent className="h-3.5 w-3.5" aria-hidden="true" />
+                  {detailsProduct.discountPercent}% off
+                </span>
+              ) : null}
+            </div>
+            <p className="whitespace-pre-wrap text-sm leading-6 text-muted-foreground">
+              {detailsProduct.description}
+            </p>
+            <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-t border-border pt-4">
+              <span className="text-xl font-bold text-felt">
+                {formatRupees(salePrice(detailsProduct.price, detailsProduct.discountPercent))}
+              </span>
+              {detailsProduct.discountPercent > 0 ? (
+                <>
+                  <span className="text-sm text-muted-foreground line-through">
+                    {formatRupees(detailsProduct.price)}
+                  </span>
+                  <span className="w-full text-sm font-medium text-felt">
+                    You save{" "}
+                    {formatRupees(
+                      detailsProduct.price -
+                        salePrice(detailsProduct.price, detailsProduct.discountPercent),
+                    )}
+                  </span>
+                </>
+              ) : null}
+            </div>
+          </DialogContent>
+        ) : null}
+      </Dialog>
 
       {editor ? (
         <ShopProductDialog

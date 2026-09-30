@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { academyDateKey, academyDayUtcBounds } from "@/lib/academy-time";
-import { reconcileWalkInExtensions } from "@/lib/session-reconciliation";
+import { academyDayUtcBounds } from "@/lib/academy-time";
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
@@ -27,10 +26,6 @@ export async function GET(request: Request) {
     };
   } catch {
     return NextResponse.json({ error: "Invalid date" }, { status: 400 });
-  }
-  const today = academyDayUtcBounds(academyDateKey());
-  if (bounds.start < today.end && bounds.end > today.start) {
-    await reconcileWalkInExtensions();
   }
   const sessions = await prisma.session.findMany({
     where: {

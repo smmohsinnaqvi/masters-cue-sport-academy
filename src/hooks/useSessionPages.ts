@@ -15,22 +15,23 @@ export type SessionPageRow = {
   customerPhone: string | null;
   players: unknown;
   loserName: string | null;
+  payerName: string | null;
+  paymentMethod: "CASH" | "UPI" | "CARD" | null;
+  paidAt: string | null;
+  rateSnapshot: number | null;
   durationMinutes: number | null;
   amount: number | null;
-  paymentStatus: string;
+  paymentStatus: "UNPAID" | "PAID";
   createdAt: string;
   table: { id: string; name: string; type: "SNOOKER" | "POOL" };
 };
 
 export type SessionPageFilters = {
-  date: string;
-  source: string;
-  status: string;
-  payment: string;
+  search?: string;
 };
 
 export function useSessionPages(
-  view: "ledger" | "bookings",
+  view: "ledger" | "bookings" | "dues",
   refreshKey: number,
   filters?: SessionPageFilters,
   autoLoadEnabled = true,
@@ -48,10 +49,13 @@ export function useSessionPages(
   const requestGeneration = useRef(0);
   const controllerRef = useRef<AbortController | null>(null);
   const [isMobileViewport, setIsMobileViewport] = useState(false);
-  const date = view === "ledger" ? (filters?.date ?? "") : "";
-  const source = view === "ledger" ? (filters?.source ?? "") : "";
-  const status = view === "ledger" ? (filters?.status ?? "") : "";
-  const payment = view === "ledger" ? (filters?.payment ?? "") : "";
+  const requestedSearch = filters?.search ?? "";
+  const [search, setSearch] = useState(requestedSearch);
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => setSearch(requestedSearch), 250);
+    return () => window.clearTimeout(timeout);
+  }, [requestedSearch]);
 
   const loadPage = useCallback(
     async (reset = false) => {
@@ -75,10 +79,7 @@ export function useSessionPages(
 
       try {
         const params = new URLSearchParams({ view, take: "25" });
-        if (date) params.set("date", date);
-        if (source) params.set("source", source);
-        if (status) params.set("status", status);
-        if (payment) params.set("payment", payment);
+        if (search.trim()) params.set("search", search.trim());
         if (pageCursor) params.set("cursor", pageCursor);
         const response = await fetch(`/api/ledger?${params}`, {
           cache: "no-store",
@@ -116,7 +117,7 @@ export function useSessionPages(
         }
       }
     },
-    [date, payment, source, status, view],
+    [search, view],
   );
 
   useEffect(() => {

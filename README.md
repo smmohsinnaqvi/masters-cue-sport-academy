@@ -7,7 +7,9 @@ The application supports:
 
 - Public table availability and online bookings.
 - Supervisor-managed walk-ins.
-- A table-format supervisor ledger.
+- A mobile-first supervisor floor with timed walk-in blocks, online booking start, and settlement.
+- Searchable session ledger and separate unpaid-dues view.
+- Admin revenue reporting for paid table sessions.
 - Online bookings, walk-ins, and maintenance blocks in one authoritative
   `Session` model.
 - Real-time availability updates through Supabase Realtime.
@@ -168,8 +170,13 @@ availability. Completed, cancelled, no-show, and expired sessions do not block
 new bookings.
 
 Online booking requests expire after 30 minutes unless staff confirm or decline
-them. Walk-ins reserve their table through closing time or the next booking,
-whichever comes first.
+them. Confirmed bookings remain reserved until a supervisor starts them at or
+after the scheduled start time; unstarted bookings become no-shows after their
+reserved time ends. Walk-ins use a selected 1-hour, 1.5-hour, 2-hour, or 3-hour
+block, capped at the next online booking or 11 PM. Supervisors can explicitly
+extend a walk-in by 30 minutes only when that full extension fits before the
+next booking and closing. An overdue walk-in remains in play and is billed by
+actual elapsed time until staff closes it.
 
 The database also contains a PostgreSQL exclusion constraint to prevent
 overlapping active sessions on the same table. The SQL is in:
@@ -179,14 +186,28 @@ prisma/migrations/0002_session_constraint/migration.sql
 ```
 
 Online bookings snapshot the table rate and reserved-slot charge when created.
-The charge is visible in the ledger immediately; payment remains unpaid until
-staff records it. Confirmed online bookings transition to `ONGOING` at their
-start time and to `COMPLETED` at their planned end. Staff can stop an ongoing
-booking early; its reserved-slot charge remains unchanged.
+When staff starts a confirmed online booking at or after its start time, or
+starts a walk-in, the session is recorded as `ONGOING`. When staff closes a live
+online booking early, or stops a walk-in, the final amount is recalculated from
+the actual elapsed minutes and the saved hourly rate.
+Closing requires the responsible payer's name and either records a full
+payment or leaves the amount unpaid. Completed unpaid sessions appear in the
+Unpaid view and can be settled later without changing their recorded charge.
 
-The supervisor Ledger and Bookings lists read from `Session` using independent
-cursor-paginated queries. They load further pages as the user scrolls; no
-duplicate ledger or bookings database table is maintained.
+`payment_status` records `PAID` or `UNPAID`; `payment_method` records `CASH`,
+`UPI`, or `CARD` independently. `payer_name` and `paid_at` are stored with the
+session to support later revenue reports. The additive
+`0006_session_payments` migration preserves legacy amounts and backfills
+existing payment method/status data.
+
+The supervisor floor displays compact per-table session and upcoming-booking
+cards, an elapsed timer and current estimated charge, and a closeout dialog.
+The Ledger and Bookings views read from `Session` using cursor-paginated
+queries; Ledger supports text search, and unpaid dues are a separate view of
+completed unpaid sessions rather than a duplicate database table. The admin
+Revenue page reports paid online and walk-in table sessions by academy-local
+payment date, with daily and per-table breakdowns. Cafe items are maintained
+in settings, but cafe sales are not reported until the app records transactions.
 
 ## Important routes
 
@@ -198,6 +219,7 @@ duplicate ledger or bookings database table is maintained.
 | `/booking`                    | Customer booking flow            |
 | `/login`                      | Admin and supervisor login       |
 | `/admin`                      | Admin dashboard                  |
+| `/admin/revenue`              | Admin table-session revenue      |
 | `/admin/settings`             | Admin settings navigation        |
 | `/admin/settings/tournaments` | Tournament management            |
 | `/admin/settings/cafeteria`   | Cafeteria item management        |

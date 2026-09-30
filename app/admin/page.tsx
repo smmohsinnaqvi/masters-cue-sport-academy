@@ -21,8 +21,8 @@ export default async function AdminPage() {
   const [payments, activeSessions, pendingBookings, activeTables] = await Promise.all([
     prisma.session.aggregate({
       where: {
-        actualEnd: { gte: today.start, lt: today.end },
-        paymentStatus: { in: ["CASH", "UPI", "CARD"] },
+        paidAt: { gte: today.start, lt: today.end },
+        paymentStatus: "PAID",
       },
       _sum: { amount: true },
     }),
@@ -45,11 +45,18 @@ export default async function AdminPage() {
               Current operations and academy settings.
             </p>
           </div>
-          <Button asChild variant="outline" className="min-h-11 w-full sm:w-auto">
-            <Link href="/supervisor">
-              Open supervisor view <ArrowRight className="ml-2 h-4 w-4" />
-            </Link>
-          </Button>
+          <div className="grid grid-cols-2 gap-2 sm:flex">
+            <Button asChild variant="outline" className="min-h-11">
+              <Link href="/admin/revenue">
+                Revenue <BarChart3 className="ml-2 h-4 w-4" />
+              </Link>
+            </Button>
+            <Button asChild variant="outline" className="min-h-11">
+              <Link href="/supervisor">
+                Supervisor <ArrowRight className="ml-2 h-4 w-4" />
+              </Link>
+            </Button>
+          </div>
         </div>
         <div className="mt-5 grid grid-cols-2 gap-2 sm:mt-8 sm:gap-4 lg:grid-cols-4">
           <Summary

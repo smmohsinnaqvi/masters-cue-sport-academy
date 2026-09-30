@@ -2,6 +2,8 @@ export type TableType = "SNOOKER" | "POOL";
 export type SessionSource = "ONLINE" | "WALKIN" | "MAINTENANCE";
 export type SessionStatus =
   "HELD" | "CONFIRMED" | "ONGOING" | "COMPLETED" | "CANCELLED" | "NO_SHOW" | "EXPIRED";
+export type PaymentStatus = "UNPAID" | "PAID";
+export type PaymentMethod = "CASH" | "UPI" | "CARD";
 
 export interface TableRow {
   id: string;
@@ -31,7 +33,10 @@ export interface SessionRow {
   rate_snapshot: number | null;
   duration_minutes: number | null;
   amount: number | null;
-  payment_status: string;
+  payment_status: PaymentStatus;
+  payment_method: PaymentMethod | null;
+  payer_name: string | null;
+  paid_at: string | null;
   created_by_id: string | null;
   created_at: string;
   updated_at: string;
@@ -61,6 +66,8 @@ export type Database = {
       TableType: TableType;
       SessionSource: SessionSource;
       SessionStatus: SessionStatus;
+      PaymentStatus: PaymentStatus;
+      PaymentMethod: PaymentMethod;
     };
     CompositeTypes: Record<string, never>;
   };
