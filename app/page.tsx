@@ -1,7 +1,8 @@
 import Link from "next/link";
-import { MapPin, Phone, Clock3, ShoppingCart, Trophy } from "lucide-react";
+import Image from "next/image";
+import { ArrowRight, MapPin, Phone, Clock3, ShoppingBag, Trophy } from "lucide-react";
 
-import heroImage from "@/assets/mcsa-hero.png";
+import heroImage from "@/assets/snooker-academy-hero.jpg";
 import { Section } from "@/components/home/section";
 import { Stat } from "@/components/home/stat";
 import { LiveAvailabilityIndicator } from "@/components/home/live-availability-indicator";
@@ -23,39 +24,64 @@ export default async function HomePage() {
     <main className="pb-20">
       <SiteHeader />
 
-      <section className="overflow-hidden border-b border-border">
-        <div className="relative">
-          <img
-            src={heroImage.src}
-            alt=""
-            aria-hidden="true"
-            className="block h-[min(74vw,300px)] w-full object-cover object-center sm:h-[min(48vw,560px)]"
-          />
-          <div className="absolute left-4 top-4 sm:left-6 sm:top-6">
+      <section className="relative isolate min-h-[500px] overflow-hidden border-b border-border bg-black sm:min-h-[600px]">
+        {/* Background Image */}
+        <Image
+          src={heroImage}
+          alt="Main arena with snooker tables under canopy lighting"
+          fill
+          priority
+          sizes="100vw"
+          className="object-cover opacity-60"
+        />
+
+        {/* Hero Custom Gradient Overlay (Restores original dimmed atmospheric feel) */}
+        <div
+          className="absolute inset-0 bg-[image:var(--gradient-hero)] opacity-90"
+          aria-hidden="true"
+        />
+
+        {/* Content Container */}
+        <div className="relative mx-auto flex min-h-[500px] max-w-7xl flex-col px-4 pb-6 pt-5 sm:min-h-[600px] sm:px-6 sm:pb-9 sm:pt-7 lg:px-8">
+          {/* Live Status Badge */}
+          <div className="w-fit rounded-full bg-background/85 p-0.5 shadow-lg backdrop-blur">
             <LiveAvailabilityIndicator />
           </div>
-        </div>
-        <div className="mx-auto max-w-7xl px-4 py-4 sm:px-6 sm:py-5 lg:px-8">
-          {/* <h1 className="max-w-3xl text-2xl font-semibold leading-snug sm:text-4xl">
-            {ACADEMY.tagline}
-          </h1> */}
-          <div className="space-y-3">
-            <div className="grid max-w-lg grid-cols-2 gap-3">
+
+          <div className="mt-5 max-w-3xl space-y-6 sm:mt-8">
+            {/* Title & Tagline */}
+            <div>
+              <h1 className="text-4xl font-bold leading-tight text-white sm:text-6xl">
+                {ACADEMY.name}
+              </h1>
+              <p className="mt-4 max-w-2xl text-base leading-7 text-muted-foreground sm:text-lg sm:leading-8">
+                {ACADEMY.tagline}
+              </p>
+            </div>
+
+            {/* Stats Grid (Positioned above buttons) */}
+            <div className="grid max-w-lg grid-cols-2 gap-3 pt-1">
               <Stat label="Open" value="10 AM – 11 PM" />
               <Stat label="To book" value="Name + phone" />
             </div>
-            <div className="flex flex-col gap-3 sm:flex-row">
-              <Button asChild className="min-h-12 w-full sm:w-auto">
+
+            {/* CTA Buttons (Stacked on mobile, side-by-side on desktop) */}
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+              <Button
+                asChild
+                className="min-h-12 w-full rounded-full font-semibold shadow-[var(--shadow-felt)] sm:w-auto sm:px-8"
+              >
                 <Link href="/booking">Book a table</Link>
               </Button>
               <Button
                 asChild
                 variant="outline"
-                className="min-h-12 w-full gap-2.5 border-felt/30 bg-felt/10 font-semibold text-foreground hover:border-felt/50 hover:bg-felt/15 sm:w-auto [&_svg]:size-5"
+                className="min-h-12 w-full gap-2 rounded-full border-border bg-surface/70 px-6 font-semibold text-foreground backdrop-blur hover:bg-background sm:w-auto [&_svg]:size-5"
               >
                 <Link href="/shop">
-                  <ShoppingCart aria-hidden="true" />
+                  <ShoppingBag aria-hidden="true" />
                   Shop
+                  <ArrowRight aria-hidden="true" className="ml-0.5 !size-4" />
                 </Link>
               </Button>
             </div>
