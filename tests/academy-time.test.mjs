@@ -6,7 +6,7 @@ test("converts an inclusive academy-local date range to UTC bounds", () => {
   const { start, end } = academyDateRangeUtcBounds("2025-07-01", "2025-07-07");
 
   assert.equal(start.toISOString(), "2025-06-30T18:30:00.000Z");
-  assert.equal(end.toISOString(), "2025-07-06T18:30:00.000Z");
+  assert.equal(end.toISOString(), "2025-07-07T18:30:00.000Z");
 });
 
 test("rejects invalid and reversed academy-local date ranges", () => {

@@ -3,17 +3,22 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Banknote,
+  CalendarDays,
   CalendarClock,
   Check,
   ChevronDown,
   ChevronUp,
   Clock3,
+  CircleDollarSign,
   CreditCard,
+  FileText,
+  Download,
   LockKeyhole,
   PencilLine,
   Play,
   Plus,
   ReceiptText,
+  Search,
   Smartphone,
   Square,
   Table2,
@@ -31,6 +36,7 @@ import {
   closeSessionAction,
   createWalkInSessionAction,
   extendWalkInSessionAction,
+  getHistoryRangeSummaryAction,
   getOperationsSnapshotAction,
   getOperationsSummaryAction,
   settleSessionPaymentAction,
@@ -54,6 +60,13 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Dialog,
@@ -148,6 +161,7 @@ type Booking = {
 };
 type Snapshot = Awaited<ReturnType<typeof getOperationsSnapshotAction>>;
 type OperationsSummary = Awaited<ReturnType<typeof getOperationsSummaryAction>>;
+type HistoryRangeSummary = Awaited<ReturnType<typeof getHistoryRangeSummaryAction>>;
 
 type WalkInForm = {
   tableId: string;
@@ -448,6 +462,9 @@ export default function SupervisorPage() {
     unpaidCount: 0,
     nextHourBookings: 0,
   });
+  const [historySummary, setHistorySummary] = useState<HistoryRangeSummary | null>(null);
+  const [historySummaryLoading, setHistorySummaryLoading] = useState(true);
+  const [historySummaryError, setHistorySummaryError] = useState<string | null>(null);
   const [snapshotLoading, setSnapshotLoading] = useState(true);
   const [refreshKey, setRefreshKey] = useState(0);
   const [activeHistory, setActiveHistory] = useState<"tables" | "unpaid" | "ledger" | "bookings">(
@@ -560,6 +577,43 @@ export default function SupervisorPage() {
       void channel.unsubscribe();
     };
   }, [refresh]);
+
+  useEffect(() => {
+    if (activeHistory !== "ledger" && activeHistory !== "bookings") return;
+    let isCurrent = true;
+    setHistorySummary(null);
+    setHistorySummaryError(null);
+    setHistorySummaryLoading(true);
+    void getHistoryRangeSummaryAction({
+      ledgerFrom: ledgerDateRange.from,
+      ledgerTo: ledgerDateRange.to,
+      bookingsFrom: bookingsDateRange.from,
+      bookingsTo: bookingsDateRange.to,
+    })
+      .then((nextSummary) => {
+        if (isCurrent) setHistorySummary(nextSummary);
+      })
+      .catch((reason) => {
+        if (isCurrent) {
+          setHistorySummaryError(
+            reason instanceof Error ? reason.message : "Unable to load history summaries",
+          );
+        }
+      })
+      .finally(() => {
+        if (isCurrent) setHistorySummaryLoading(false);
+      });
+    return () => {
+      isCurrent = false;
+    };
+  }, [
+    activeHistory,
+    bookingsDateRange.from,
+    bookingsDateRange.to,
+    ledgerDateRange.from,
+    ledgerDateRange.to,
+    refreshKey,
+  ]);
 
   const tables = useMemo(() => snapshot, [snapshot]);
   const activeTableCount = tables.filter((table) =>
@@ -949,13 +1003,21 @@ export default function SupervisorPage() {
     <RoleGate role="supervisor">
       <>
         <SiteHeader />
-        <main className="mx-auto max-w-7xl px-3 py-3 sm:px-6 sm:py-6 lg:px-8">
+        <main className="mx-auto max-w-7xl px-3 pt-3 pb-[calc(5rem+env(safe-area-inset-bottom))] sm:px-6 sm:pt-6 lg:px-8 lg:pb-6">
           <div className="flex items-center justify-between gap-3">
             <div>
               <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-felt">
                 Supervisor
               </p>
-              <h1 className="mt-0.5 text-xl font-bold sm:text-2xl">Live floor</h1>
+              <h1 className="mt-0.5 text-xl font-bold sm:text-2xl">
+                {activeHistory === "tables"
+                  ? "Tables"
+                  : activeHistory === "unpaid"
+                    ? "Unpaid"
+                    : activeHistory === "ledger"
+                      ? "Ledger"
+                      : "Bookings"}
+              </h1>
             </div>
           </div>
           {error ? (
@@ -966,32 +1028,34 @@ export default function SupervisorPage() {
               {error}
             </div>
           ) : null}
-          <div className="mt-3 grid grid-cols-3 gap-2" aria-busy={snapshotLoading}>
-            {snapshotLoading ? (
-              Array.from({ length: 3 }, (_, index) => (
-                <Skeleton key={index} className="h-[4.5rem] rounded-xl" />
-              ))
-            ) : (
-              <>
-                <Metric
-                  icon={Table2}
-                  label="Tables in play"
-                  value={`${liveCount} / ${snapshot.length}`}
-                />
-                <Metric
-                  icon={Check}
-                  label="Payments due"
-                  value={money(summary.unpaidAmount)}
-                  detail={`${summary.unpaidCount} sessions`}
-                />
-                <Metric
-                  icon={CalendarClock}
-                  label="Next hour bookings"
-                  value={String(summary.nextHourBookings)}
-                />
-              </>
-            )}
-          </div>
+          {activeHistory === "tables" ? (
+            <div className="mt-3 grid grid-cols-3 gap-2" aria-busy={snapshotLoading}>
+              {snapshotLoading ? (
+                Array.from({ length: 3 }, (_, index) => (
+                  <Skeleton key={index} className="h-[4.5rem] rounded-xl" />
+                ))
+              ) : (
+                <>
+                  <Metric
+                    icon={Table2}
+                    label="Tables in play"
+                    value={`${liveCount} / ${snapshot.length}`}
+                  />
+                  <Metric
+                    icon={Check}
+                    label="Payments due"
+                    value={money(summary.unpaidAmount)}
+                    detail={`${summary.unpaidCount} sessions`}
+                  />
+                  <Metric
+                    icon={CalendarClock}
+                    label="Next hour bookings"
+                    value={String(summary.nextHourBookings)}
+                  />
+                </>
+              )}
+            </div>
+          ) : null}
 
           <Dialog
             open={showForm}
@@ -1434,7 +1498,7 @@ export default function SupervisorPage() {
             </DialogContent>
           </Dialog>
 
-          <div className="mt-5">
+          <div className="mt-5 hidden lg:block">
             <div className="grid grid-cols-4 gap-1 rounded-xl border border-border bg-surface p-1">
               {(["tables", "unpaid", "ledger", "bookings"] as const).map((view) => (
                 <button
@@ -1449,7 +1513,7 @@ export default function SupervisorPage() {
                       : "text-muted-foreground hover:text-foreground",
                   )}
                 >
-                  <span>{view}</span>
+                  <span>{view === "bookings" ? "Bookings" : view}</span>
                   {view === "unpaid" && summary.unpaidCount > 0 ? (
                     <span className="relative -top-1 ml-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[9px] font-bold leading-none text-destructive-foreground">
                       {summary.unpaidCount}
@@ -1464,7 +1528,7 @@ export default function SupervisorPage() {
               <div className="mb-3 flex items-end justify-between gap-3">
                 <div>
                   <h2 id="floor-heading" className="text-lg font-semibold sm:text-xl">
-                    Tables
+                    Live floor
                   </h2>
                   <p className="mt-1 text-xs text-muted-foreground sm:text-sm">
                     Live sessions and upcoming reservations.
@@ -1971,207 +2035,286 @@ export default function SupervisorPage() {
 
           <div className="mt-4 grid gap-6 lg:mt-6">
             {activeHistory === "unpaid" ? (
-              <section className="min-w-0 space-y-3" aria-label="Unpaid sessions">
-                {dues.length === 0 && duesPage.loading ? (
-                  Array.from({ length: 3 }, (_, index) => (
-                    <div key={index} className="space-y-2 rounded-xl border border-border p-4">
-                      <Skeleton className="h-4 w-2/3" />
-                      <Skeleton className="h-4 w-1/2" />
-                    </div>
-                  ))
-                ) : dues.length === 0 ? (
-                  <div className="rounded-xl border border-dashed border-border p-8 text-center">
-                    <p className="font-medium">All settled</p>
-                    <p className="mt-1 text-sm text-muted-foreground">
-                      There are no completed sessions with an outstanding balance.
-                    </p>
+              <div className="space-y-4">
+                <div>
+                  <div className="grid grid-cols-2 gap-2" aria-label="Outstanding payment summary">
+                    <Metric
+                      icon={CircleDollarSign}
+                      label="Total dues"
+                      value={money(summary.unpaidAmount)}
+                    />
+                    <Metric
+                      icon={ReceiptText}
+                      label="Unpaid sessions"
+                      value={String(summary.unpaidCount)}
+                    />
                   </div>
-                ) : (
-                  dues.map((entry) => (
-                    <article
-                      key={entry.id}
-                      className="rounded-2xl border border-border bg-background/60 p-4 sm:p-5"
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <p className="truncate text-base font-bold">
-                            {entry.payerName || entry.playerOne}
-                          </p>
-                          <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                            <Badge variant="outline" className="rounded-full">
-                              Table {entry.tableName}
-                            </Badge>
-                            <span className="text-xs text-muted-foreground">
-                              {entry.source === "ONLINE"
-                                ? "Online booking"
-                                : entry.source === "WALKIN"
-                                  ? "Walk-in"
-                                  : "Maintenance"}
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    Completed walk-ins and bookings with an outstanding balance.
+                  </p>
+                </div>
+                <section className="grid min-w-0 gap-3 lg:grid-cols-2" aria-label="Unpaid sessions">
+                  {dues.length === 0 && duesPage.loading ? (
+                    Array.from({ length: 3 }, (_, index) => (
+                      <div
+                        key={index}
+                        className="space-y-3 rounded-2xl border border-border bg-surface/50 p-4"
+                      >
+                        <Skeleton className="h-4 w-2/3" />
+                        <Skeleton className="h-4 w-1/2" />
+                        <Skeleton className="h-11 w-full rounded-xl" />
+                      </div>
+                    ))
+                  ) : dues.length === 0 ? (
+                    <div className="col-span-full rounded-2xl border border-dashed border-border bg-surface/30 px-6 py-10 text-center">
+                      <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-felt/10 text-felt">
+                        <Check className="h-5 w-5" aria-hidden="true" />
+                      </span>
+                      <p className="mt-3 font-semibold">All settled</p>
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        There are no completed sessions with an outstanding balance.
+                      </p>
+                    </div>
+                  ) : (
+                    dues.map((entry) => (
+                      <article
+                        key={entry.id}
+                        className="group relative min-w-0 overflow-hidden rounded-2xl border border-border/80 bg-surface p-4 shadow-[0_4px_18px_rgba(0,0,0,0.2)] transition-[border-color,box-shadow] hover:border-felt/40 hover:shadow-[0_8px_24px_rgba(0,0,0,0.26)] sm:p-5"
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex min-w-0 items-start gap-3">
+                            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-warning/10 text-warning">
+                              <ReceiptText className="h-5 w-5" aria-hidden="true" />
+                            </span>
+                            <div className="min-w-0">
+                              <p className="break-words text-base font-bold leading-snug [overflow-wrap:anywhere]">
+                                {entry.payerName || entry.playerOne}
+                              </p>
+                              <p className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
+                                <CalendarDays className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                                {entry.startDate}
+                              </p>
+                            </div>
+                          </div>
+                          <div className="shrink-0 text-right">
+                            <p className="text-xl font-bold leading-none text-felt">
+                              {money(entry.amount)}
+                            </p>
+                            <span className="mt-1.5 inline-flex items-center gap-1 rounded-full bg-warning/10 px-2 py-1 text-[10px] font-semibold text-warning">
+                              <CircleDollarSign className="h-3 w-3" aria-hidden="true" />
+                              Unpaid
                             </span>
                           </div>
                         </div>
-                        <div className="shrink-0 text-right">
-                          <p className="text-xl font-bold text-felt">{money(entry.amount)}</p>
-                          <Badge
-                            variant="outline"
-                            className="mt-1 rounded-full border-warning/40 text-warning"
-                          >
-                            Awaiting payment
-                          </Badge>
+                        <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-border/70 pt-3">
+                          <span className="inline-flex items-center gap-1.5 rounded-lg bg-background/70 px-2.5 py-1.5 text-xs font-semibold">
+                            <Table2 className="h-3.5 w-3.5 text-felt" aria-hidden="true" />
+                            Table {entry.tableName}
+                          </span>
+                          <span className="inline-flex items-center gap-1.5 rounded-lg bg-background/70 px-2.5 py-1.5 text-xs text-muted-foreground">
+                            <Clock3 className="h-3.5 w-3.5" aria-hidden="true" />
+                            {entry.startTime}–{entry.endTime || "—"} · {entry.durationMinutes ?? 0}{" "}
+                            min
+                          </span>
+                          <span className="rounded-lg bg-background/70 px-2.5 py-1.5 text-xs text-muted-foreground">
+                            {entry.source === "ONLINE"
+                              ? "Online booking"
+                              : entry.source === "WALKIN"
+                                ? "Walk-in"
+                                : "Maintenance"}
+                          </span>
                         </div>
-                      </div>
-                      <div className="mt-3 border-t border-border/70 pt-3">
-                        <p className="text-sm font-medium">
-                          {entry.gameLabel || gameFormatDescription(entry.gameFormat)
-                            ? `${entry.gameLabel || gameFormatDescription(entry.gameFormat)} · `
-                            : ""}
-                          {entry.players.map((player) => player.name).join(" · ")}
-                        </p>
-                        <p className="mt-1.5 text-xs text-muted-foreground">
-                          {entry.startTime}–{entry.endTime || "—"} · {entry.durationMinutes ?? 0}{" "}
-                          min
-                        </p>
-                      </div>
-                      {entry.discountPercent > 0 ? (
-                        <p className="mt-2 text-xs text-muted-foreground">
-                          {entry.discountPercent}% discount · {money(entry.discountAmount)} off
-                          {entry.grossAmount !== null ? ` from ${money(entry.grossAmount)}` : ""}
-                        </p>
-                      ) : null}
-                      {entry.settlementDiscountPercent > 0 ? (
-                        <p className="mt-1 text-xs text-muted-foreground">
-                          Settlement discount {entry.settlementDiscountPercent}% ·{" "}
-                          {money(entry.settlementDiscountAmount)} off
-                        </p>
-                      ) : null}
-                      {entry.payerShares.length > 0 ? (
-                        <div className="mt-2 flex flex-wrap gap-1.5">
-                          {entry.payerShares.map((share) => (
-                            <Badge key={`${entry.id}-${share.name}`} variant="outline">
-                              {share.name}: {money(share.amount)}
-                            </Badge>
-                          ))}
+                        <div className="mt-3">
+                          <p className="text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+                            {entry.gameLabel ||
+                              gameFormatDescription(entry.gameFormat) ||
+                              "Players"}
+                          </p>
+                          {entry.players.length > 0 ? (
+                            <div className="mt-2 flex flex-wrap gap-1.5">
+                              {entry.players.map((player, index) => (
+                                <span
+                                  key={`${entry.id}-dues-player-${index}`}
+                                  className="max-w-full break-words rounded-full bg-background/70 px-2.5 py-1 text-xs shadow-sm [overflow-wrap:anywhere]"
+                                >
+                                  {player.team ? `Team ${player.team} · ` : ""}
+                                  {player.name}
+                                </span>
+                              ))}
+                            </div>
+                          ) : null}
                         </div>
-                      ) : null}
-                      <Button
-                        type="button"
-                        className="mt-3 min-h-11 w-full rounded-xl"
-                        onClick={() =>
-                          setPaymentEntry({
-                            sessionId: entry.sessionId!,
-                            payerName: entry.payerName || entry.playerOne,
-                            paymentMethod: "CASH",
-                            applyDiscount: false,
-                            discountPercent: "0",
-                          })
-                        }
-                      >
-                        Record payment
-                      </Button>
-                    </article>
-                  ))
-                )}
-                {duesPage.error ? (
-                  <p role="alert" className="text-sm text-destructive">
-                    {duesPage.error}
-                  </p>
-                ) : null}
-                {duesPage.hasMore ? <div ref={duesPage.sentinelRef} className="h-4" /> : null}
-              </section>
+                        {entry.discountPercent > 0 || entry.settlementDiscountPercent > 0 ? (
+                          <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 rounded-xl bg-background/65 px-3 py-2 text-xs text-muted-foreground">
+                            {entry.discountPercent > 0 ? (
+                              <span>
+                                Session discount {entry.discountPercent}% ·{" "}
+                                {money(entry.discountAmount)} off
+                              </span>
+                            ) : null}
+                            {entry.settlementDiscountPercent > 0 ? (
+                              <span>
+                                Settlement {entry.settlementDiscountPercent}% ·{" "}
+                                {money(entry.settlementDiscountAmount)} off
+                              </span>
+                            ) : null}
+                          </div>
+                        ) : null}
+                        {entry.payerShares.length > 0 ? (
+                          <div className="mt-3 flex flex-wrap gap-1.5">
+                            {entry.payerShares.map((share) => (
+                              <Badge
+                                key={`${entry.id}-${share.name}`}
+                                variant="outline"
+                                className="rounded-lg"
+                              >
+                                {share.name}: {money(share.amount)}
+                              </Badge>
+                            ))}
+                          </div>
+                        ) : null}
+                        <Button
+                          type="button"
+                          className="mt-4 min-h-11 w-full gap-2 rounded-xl"
+                          onClick={() =>
+                            setPaymentEntry({
+                              sessionId: entry.sessionId!,
+                              payerName: entry.payerName || entry.playerOne,
+                              paymentMethod: "CASH",
+                              applyDiscount: false,
+                              discountPercent: "0",
+                            })
+                          }
+                        >
+                          <ReceiptText className="h-4 w-4" aria-hidden="true" />
+                          Record payment
+                        </Button>
+                      </article>
+                    ))
+                  )}
+                  {duesPage.error ? (
+                    <p role="alert" className="text-sm text-destructive">
+                      {duesPage.error}
+                    </p>
+                  ) : null}
+                  {duesPage.hasMore ? <div ref={duesPage.sentinelRef} className="h-4" /> : null}
+                </section>
+              </div>
             ) : null}
             <section className={cn("min-w-0 space-y-4", activeHistory !== "ledger" && "hidden")}>
               <div className="space-y-3">
-                <div>
-                  <h2 className="text-lg font-semibold">Ledger</h2>
-                  <p className="mt-1 text-sm text-muted-foreground">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="max-w-prose text-sm text-muted-foreground">
                     Audit log of settled sessions, split payments and match receipts.
                   </p>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="min-h-10 shrink-0 gap-1.5 rounded-xl border-felt/25 bg-felt/10 font-semibold text-felt shadow-sm hover:border-felt/40 hover:bg-felt/15 hover:text-felt"
+                    onClick={() => {
+                      const params = new URLSearchParams({
+                        dateFrom: ledgerDateRange.from,
+                        dateTo: ledgerDateRange.to,
+                      });
+                      window.location.assign(`/api/ledger/export?${params}`);
+                    }}
+                  >
+                    <Download className="h-4 w-4" aria-hidden="true" />
+                    <span className="hidden sm:inline">Export CSV</span>
+                    <span className="sm:hidden">CSV</span>
+                  </Button>
                 </div>
                 <DateRangeFilter
                   value={ledgerDateRange}
                   onChange={setLedgerDateRange}
                   label="Ledger date presets"
                 />
-                <Input
-                  value={ledgerSearch}
-                  onChange={(event) => setLedgerSearch(event.target.value)}
-                  placeholder="Search player, phone, table, or reference"
-                  aria-label="Search ledger by player, phone, table, or booking reference"
-                  className="min-h-11"
-                />
-                <div className="space-y-2.5" aria-label="Ledger filters">
-                  <div className="space-y-1">
-                    <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
-                      Payment status
-                    </p>
-                    <div
-                      className="flex gap-2 overflow-x-auto pb-1"
-                      role="group"
-                      aria-label="Filter ledger by payment status"
+                <div className="grid grid-cols-3 gap-2" aria-busy={historySummaryLoading}>
+                  <Metric
+                    icon={Banknote}
+                    label="Paid total"
+                    value={historySummary ? money(historySummary.ledger.paidAmount) : "—"}
+                    detail="Selected range"
+                  />
+                  <Metric
+                    icon={CircleDollarSign}
+                    label="Unpaid total"
+                    value={historySummary ? money(historySummary.ledger.unpaidAmount) : "—"}
+                    detail="Selected range"
+                  />
+                  <Metric
+                    icon={ReceiptText}
+                    label="Sessions"
+                    value={historySummary ? String(historySummary.ledger.sessionCount) : "—"}
+                    detail="Selected range"
+                  />
+                </div>
+                {historySummaryError ? (
+                  <p role="alert" className="text-sm text-destructive">
+                    {historySummaryError}
+                  </p>
+                ) : null}
+                <div className="relative">
+                  <Search
+                    className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+                    aria-hidden="true"
+                  />
+                  <Input
+                    value={ledgerSearch}
+                    onChange={(event) => setLedgerSearch(event.target.value)}
+                    placeholder="Search player, phone, table, or reference"
+                    aria-label="Search ledger by player, phone, table, or booking reference"
+                    className="min-h-11 pl-10"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-2" aria-label="Ledger filters">
+                  <label className="min-w-0 space-y-1">
+                    <span className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+                      <CircleDollarSign className="h-3.5 w-3.5" aria-hidden="true" />
+                      Payment
+                    </span>
+                    <Select
+                      value={ledgerPaymentFilter}
+                      onValueChange={(value) =>
+                        setLedgerPaymentFilter(value as LedgerPaymentFilter)
+                      }
                     >
-                      {(
-                        [
-                          { value: "ALL", label: "All" },
-                          { value: "PAID", label: "Paid" },
-                          { value: "UNPAID", label: "Unpaid" },
-                        ] as const
-                      ).map((filter) => {
-                        const selected = ledgerPaymentFilter === filter.value;
-                        return (
-                          <button
-                            key={filter.value}
-                            type="button"
-                            aria-pressed={selected}
-                            onClick={() => setLedgerPaymentFilter(filter.value)}
-                            className={cn(
-                              "min-h-9 shrink-0 rounded-full border px-4 text-xs font-semibold transition-colors",
-                              selected
-                                ? "border-felt bg-felt text-primary-foreground"
-                                : "border-border bg-background/70 text-muted-foreground hover:text-foreground",
-                            )}
-                          >
-                            {filter.label}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                  <div className="space-y-1">
-                    <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
-                      Table type
-                    </p>
-                    <div
-                      className="flex gap-2 overflow-x-auto pb-1"
-                      role="group"
-                      aria-label="Filter ledger by table type"
+                      <SelectTrigger
+                        className="min-h-10 min-w-0 border-border bg-background/70 text-sm shadow-none"
+                        aria-label="Filter ledger by payment status"
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="ALL">All statuses</SelectItem>
+                        <SelectItem value="PAID">Paid</SelectItem>
+                        <SelectItem value="UNPAID">Unpaid</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </label>
+                  <label className="min-w-0 space-y-1">
+                    <span className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+                      <Table2 className="h-3.5 w-3.5" aria-hidden="true" />
+                      Table
+                    </span>
+                    <Select
+                      value={ledgerTableFilter}
+                      onValueChange={(value) => setLedgerTableFilter(value as LedgerTableFilter)}
                     >
-                      {(
-                        [
-                          { value: "ALL", label: "All tables" },
-                          { value: "SNOOKER", label: "Snooker" },
-                          { value: "POOL", label: "Pool" },
-                        ] as const
-                      ).map((filter) => {
-                        const selected = ledgerTableFilter === filter.value;
-                        return (
-                          <button
-                            key={filter.value}
-                            type="button"
-                            aria-pressed={selected}
-                            onClick={() => setLedgerTableFilter(filter.value)}
-                            className={cn(
-                              "min-h-9 shrink-0 rounded-full border px-4 text-xs font-semibold transition-colors",
-                              selected
-                                ? "border-felt bg-felt text-primary-foreground"
-                                : "border-border bg-background/70 text-muted-foreground hover:text-foreground",
-                            )}
-                          >
-                            {filter.label}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
+                      <SelectTrigger
+                        className="min-h-10 min-w-0 border-border bg-background/70 text-sm shadow-none"
+                        aria-label="Filter ledger by table type"
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="ALL">All tables</SelectItem>
+                        <SelectItem value="SNOOKER">Snooker</SelectItem>
+                        <SelectItem value="POOL">Pool</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </label>
                 </div>
               </div>
               <div className="min-w-0 overflow-hidden">
@@ -2362,28 +2505,35 @@ export default function SupervisorPage() {
                     entries.map((entry) => (
                       <article
                         key={entry.id}
-                        className="min-w-0 overflow-hidden rounded-2xl border border-border bg-background/60 p-4 sm:p-5"
+                        className="group min-w-0 overflow-hidden rounded-2xl border border-border/80 bg-surface p-4 shadow-[0_4px_18px_rgba(0,0,0,0.2)] transition-[border-color,box-shadow] hover:border-felt/40 hover:shadow-[0_8px_24px_rgba(0,0,0,0.26)] sm:p-5"
                       >
                         <div className="flex items-start justify-between gap-3">
-                          <div className="min-w-0">
-                            <p className="break-words text-base font-bold leading-snug [overflow-wrap:anywhere]">
-                              {entry.payerName || entry.playerOne}
-                            </p>
-                            <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                              <Badge variant="outline" className="rounded-full">
-                                Table {entry.tableName}
-                              </Badge>
-                              <span className="text-xs text-muted-foreground">
-                                {entry.source === "ONLINE"
-                                  ? "Online"
-                                  : entry.source === "WALKIN"
-                                    ? "Walk-in"
-                                    : "Maintenance"}
-                              </span>
+                          <div className="flex min-w-0 items-start gap-3">
+                            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-felt/10 text-felt">
+                              <Table2 className="h-5 w-5" aria-hidden="true" />
+                            </span>
+                            <div className="min-w-0">
+                              <p className="break-words text-base font-bold leading-snug [overflow-wrap:anywhere]">
+                                {entry.payerName || entry.playerOne}
+                              </p>
+                              <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                                <span className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground">
+                                  Table {entry.tableName}
+                                  <span aria-hidden="true">·</span>
+                                  {entry.source === "ONLINE"
+                                    ? "Online"
+                                    : entry.source === "WALKIN"
+                                      ? "Walk-in"
+                                      : "Maintenance"}
+                                </span>
+                              </div>
                             </div>
                           </div>
-                          <div className="shrink-0 text-right">
-                            <p className="text-lg font-bold text-felt">{money(entry.amount)}</p>
+                          <div className="shrink-0 rounded-xl bg-background/75 px-2.5 py-2 text-right">
+                            <p className="text-[9px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+                              Total
+                            </p>
+                            <p className="text-base font-bold text-felt">{money(entry.amount)}</p>
                             {entry.discountPercent > 0 ? (
                               <p className="text-xs text-muted-foreground">
                                 {entry.discountPercent}% off
@@ -2396,11 +2546,17 @@ export default function SupervisorPage() {
                             ) : null}
                           </div>
                         </div>
-                        <p className="mt-3 break-words text-sm font-medium [overflow-wrap:anywhere]">
-                          {entry.gameLabel ||
-                            gameFormatDescription(entry.gameFormat) ||
-                            entry.source}
-                        </p>
+                        <div className="mt-4 flex items-center gap-2">
+                          <UsersRound
+                            className="h-4 w-4 shrink-0 text-muted-foreground"
+                            aria-hidden="true"
+                          />
+                          <p className="break-words text-sm font-semibold [overflow-wrap:anywhere]">
+                            {entry.gameLabel ||
+                              gameFormatDescription(entry.gameFormat) ||
+                              "Session players"}
+                          </p>
+                        </div>
                         {entry.players.length > 0 ? (
                           <div className="mt-2 flex flex-wrap gap-1.5">
                             {entry.players.map((player, index) => (
@@ -2423,32 +2579,37 @@ export default function SupervisorPage() {
                           </p>
                         ) : null}
                         <div className="mt-3 flex flex-wrap items-center gap-2">
-                          <Badge variant="outline" className="rounded-full">
+                          <span className="rounded-full border border-border bg-background/65 px-2.5 py-1 text-[11px] font-semibold text-muted-foreground">
                             {entry.statusLabel}
-                          </Badge>
-                          <Badge
-                            variant="outline"
+                          </span>
+                          <span
                             className={cn(
-                              "rounded-full",
+                              "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold",
                               entry.payment === "PAID"
-                                ? "border-felt/40 text-felt"
-                                : "border-warning/40 text-warning",
+                                ? "bg-felt/10 text-felt"
+                                : "bg-warning/10 text-warning",
                             )}
                           >
+                            {entry.payment === "PAID" ? (
+                              <Check className="h-3 w-3" aria-hidden="true" />
+                            ) : (
+                              <CircleDollarSign className="h-3 w-3" aria-hidden="true" />
+                            )}
                             {entry.payment === "PAID" ? `Paid · ${entry.paymentMethod}` : "Unpaid"}
-                          </Badge>
+                          </span>
                         </div>
-                        <div className="mt-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 rounded-xl bg-background/70 px-3 py-2 text-xs text-muted-foreground">
+                        <div className="mt-3 grid grid-cols-2 gap-2 rounded-xl bg-background/65 p-3 text-xs text-muted-foreground">
                           <span className="inline-flex min-w-0 items-center gap-1.5">
                             <CalendarClock className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
                             <span className="break-words">{entry.startDate}</span>
                           </span>
-                          <span className="shrink-0">
+                          <span className="inline-flex items-center justify-end gap-1.5">
                             {entry.durationMinutes
                               ? `${entry.durationMinutes} min`
                               : "Duration pending"}
                           </span>
-                          <span className="w-full break-words sm:w-auto">
+                          <span className="col-span-2 inline-flex min-w-0 items-center gap-1.5">
+                            <Clock3 className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
                             {entry.startTime}
                             {entry.endTime ? ` – ${entry.endTime}` : ""}
                           </span>
@@ -2469,6 +2630,7 @@ export default function SupervisorPage() {
                               })
                             }
                           >
+                            <ReceiptText className="mr-1.5 h-4 w-4" aria-hidden="true" />
                             Record payment
                           </Button>
                         ) : null}
@@ -2498,7 +2660,6 @@ export default function SupervisorPage() {
             <section className={cn("min-w-0 space-y-4", activeHistory !== "bookings" && "hidden")}>
               <div className="space-y-3">
                 <div>
-                  <h2 className="text-lg font-semibold">Bookings</h2>
                   <p className="mt-1 text-sm text-muted-foreground">
                     Online booking requests and reservations.
                   </p>
@@ -2508,6 +2669,31 @@ export default function SupervisorPage() {
                   onChange={setBookingsDateRange}
                   label="Bookings date presets"
                 />
+                <div className="grid grid-cols-3 gap-2" aria-busy={historySummaryLoading}>
+                  <Metric
+                    icon={CalendarClock}
+                    label="Pending"
+                    value={historySummary ? String(historySummary.bookings.pendingCount) : "—"}
+                    detail="Selected range"
+                  />
+                  <Metric
+                    icon={Check}
+                    label="Confirmed / active"
+                    value={historySummary ? String(historySummary.bookings.confirmedCount) : "—"}
+                    detail="Selected range"
+                  />
+                  <Metric
+                    icon={CalendarDays}
+                    label="Bookings"
+                    value={historySummary ? String(historySummary.bookings.totalCount) : "—"}
+                    detail="Selected range"
+                  />
+                </div>
+                {historySummaryError ? (
+                  <p role="alert" className="text-sm text-destructive">
+                    {historySummaryError}
+                  </p>
+                ) : null}
               </div>
               <div
                 ref={bookingsPage.scrollRootRef}
@@ -2534,33 +2720,61 @@ export default function SupervisorPage() {
                   bookings.map((booking) => (
                     <article
                       key={booking.id}
-                      className="min-w-0 overflow-hidden rounded-2xl border border-border bg-background/60 p-4"
+                      className="group min-w-0 overflow-hidden rounded-2xl border border-border/80 bg-surface p-4 shadow-[0_4px_18px_rgba(0,0,0,0.2)] transition-[border-color,box-shadow] hover:border-felt/40 hover:shadow-[0_8px_24px_rgba(0,0,0,0.26)] sm:p-5"
                     >
                       <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0 flex-1">
-                          <p className="break-words font-semibold leading-snug [overflow-wrap:anywhere]">
-                            {booking.customerName}
-                          </p>
-                          <p className="mt-1 break-words text-xs text-muted-foreground [overflow-wrap:anywhere]">
-                            {booking.table?.shortName ?? booking.tableId} ·{" "}
-                            {time(booking.slotStart)}–{time(booking.slotEnd)}
-                          </p>
-                          <p className="mt-1 text-xs text-muted-foreground">
-                            Reserved charge: ₹{booking.amount.toFixed(2)}
-                          </p>
+                        <div className="flex min-w-0 flex-1 items-start gap-3">
+                          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-felt/10 text-felt">
+                            <CalendarClock className="h-5 w-5" aria-hidden="true" />
+                          </span>
+                          <div className="min-w-0">
+                            <p className="break-words font-bold leading-snug [overflow-wrap:anywhere]">
+                              {booking.customerName}
+                            </p>
+                            <p className="mt-1 flex items-center gap-1.5 break-words text-xs text-muted-foreground [overflow-wrap:anywhere]">
+                              <Table2 className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                              {booking.table?.shortName ?? booking.tableId}
+                            </p>
+                          </div>
                         </div>
-                        <Badge variant="outline" className="shrink-0">
+                        <Badge
+                          variant="outline"
+                          className={cn(
+                            "shrink-0 rounded-full",
+                            booking.status === "CONFIRMED" || booking.status === "ONGOING"
+                              ? "border-felt/40 bg-felt/10 text-felt"
+                              : booking.status === "HELD"
+                                ? "border-warning/40 bg-warning/10 text-warning"
+                                : "",
+                          )}
+                        >
                           {booking.status}
                         </Badge>
                       </div>
-                      <p className="mt-3 flex items-center gap-1.5 text-xs text-muted-foreground">
-                        <CalendarClock className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                        {booking.slotStartDate}
-                      </p>
+                      <div className="mt-4 grid grid-cols-2 gap-2 rounded-xl bg-background/65 p-3">
+                        <div className="col-span-2 flex min-w-0 items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                          <CalendarDays
+                            className="h-3.5 w-3.5 shrink-0 text-felt"
+                            aria-hidden="true"
+                          />
+                          <span className="break-words">{booking.slotStartDate}</span>
+                        </div>
+                        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                          <Clock3 className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                          {time(booking.slotStart)}–{time(booking.slotEnd)}
+                        </div>
+                        <div className="text-right text-xs text-muted-foreground">
+                          Reserved charge{" "}
+                          <span className="font-semibold text-foreground">
+                            {money(booking.amount)}
+                          </span>
+                        </div>
+                      </div>
                       <div className="mt-4 flex flex-wrap gap-2">
                         {booking.status === "HELD" ? (
                           <Button
                             size="sm"
+                            className="min-h-10 gap-1.5 rounded-xl"
                             onClick={() =>
                               ask(
                                 "Confirm this booking?",
@@ -2572,6 +2786,7 @@ export default function SupervisorPage() {
                               )
                             }
                           >
+                            <Check className="h-4 w-4" aria-hidden="true" />
                             Confirm
                           </Button>
                         ) : null}
@@ -2579,6 +2794,7 @@ export default function SupervisorPage() {
                           <Button
                             size="sm"
                             variant="outline"
+                            className="min-h-10 gap-1.5 rounded-xl"
                             onClick={() =>
                               ask(
                                 "Mark this booking as no-show?",
@@ -2590,6 +2806,7 @@ export default function SupervisorPage() {
                               )
                             }
                           >
+                            <UserRound className="h-4 w-4" aria-hidden="true" />
                             No-show
                           </Button>
                         ) : null}
@@ -2597,6 +2814,7 @@ export default function SupervisorPage() {
                           <Button
                             size="sm"
                             variant="outline"
+                            className="min-h-10 gap-1.5 rounded-xl"
                             onClick={() =>
                               ask(
                                 "Cancel this booking?",
@@ -2617,6 +2835,7 @@ export default function SupervisorPage() {
                           <Button
                             size="sm"
                             variant="outline"
+                            className="min-h-10 gap-1.5 rounded-xl border-felt/25 bg-felt/10 font-semibold text-felt shadow-sm hover:border-felt/40 hover:bg-felt/15 hover:text-felt"
                             onClick={() =>
                               setPaymentEntry({
                                 sessionId: booking.id,
@@ -2627,6 +2846,7 @@ export default function SupervisorPage() {
                               })
                             }
                           >
+                            <ReceiptText className="h-4 w-4" aria-hidden="true" />
                             Record payment
                           </Button>
                         ) : null}
@@ -2654,6 +2874,51 @@ export default function SupervisorPage() {
             </section>
           </div>
         </main>
+        <nav
+          aria-label="Supervisor navigation"
+          className="fixed inset-x-0 bottom-0 z-40 border-t border-border/80 bg-background/95 px-2 pt-1.5 pb-[calc(env(safe-area-inset-bottom)+0.375rem)] shadow-[0_-8px_30px_rgba(0,0,0,0.28)] backdrop-blur-xl lg:hidden"
+        >
+          <div className="mx-auto grid max-w-md grid-cols-4 gap-1">
+            {(
+              [
+                { view: "tables", label: "Tables", icon: Table2 },
+                { view: "unpaid", label: "Unpaid", icon: ReceiptText },
+                { view: "ledger", label: "Ledger", icon: FileText },
+                { view: "bookings", label: "Bookings", icon: CalendarDays },
+              ] as const
+            ).map(({ view, label, icon: Icon }) => {
+              const selected = activeHistory === view;
+              return (
+                <button
+                  key={view}
+                  type="button"
+                  aria-label={label}
+                  aria-current={selected ? "page" : undefined}
+                  onClick={() => setActiveHistory(view)}
+                  className={cn(
+                    "relative flex min-h-14 flex-col items-center justify-center gap-1 rounded-xl px-1 text-[10px] font-semibold transition-colors",
+                    selected
+                      ? "text-felt"
+                      : "text-muted-foreground hover:bg-surface/80 hover:text-foreground",
+                  )}
+                >
+                  <span className="relative">
+                    <Icon
+                      className={cn("h-5 w-5", selected && "stroke-[2.5]")}
+                      aria-hidden="true"
+                    />
+                    {view === "unpaid" && summary.unpaidCount > 0 ? (
+                      <span className="absolute -right-2 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[9px] font-bold leading-none text-destructive-foreground">
+                        {summary.unpaidCount}
+                      </span>
+                    ) : null}
+                  </span>
+                  <span>{label}</span>
+                </button>
+              );
+            })}
+          </div>
+        </nav>
         <AlertDialog
           open={Boolean(confirm)}
           onOpenChange={(open) => {
@@ -3095,44 +3360,59 @@ export default function SupervisorPage() {
           }}
         >
           <AlertDialogContent className="flex max-h-[92dvh] w-[calc(100%-1rem)] max-w-lg flex-col gap-0 overflow-hidden rounded-3xl border-border/80 p-0 shadow-2xl">
-            <AlertDialogHeader className="shrink-0 border-b border-border/80 p-4 pr-12 text-left sm:p-5">
+            <AlertDialogHeader className="shrink-0 border-b border-border/80 bg-surface/35 p-4 pr-12 text-left sm:p-5">
               <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <AlertDialogTitle className="text-base sm:text-lg">
-                    Record payment
-                  </AlertDialogTitle>
-                  <AlertDialogDescription className="mt-1">
-                    {paymentEntryDetails && "tableName" in paymentEntryDetails
-                      ? `Table ${paymentEntryDetails.tableName} · ${paymentEntryDetails.startTime}${paymentEntryDetails.endTime ? `–${paymentEntryDetails.endTime}` : ""}`
-                      : paymentEntryDetails && "table" in paymentEntryDetails
-                        ? `Table ${paymentEntryDetails.table?.shortName ?? "—"} · ${time(paymentEntryDetails.slotStart)}–${time(paymentEntryDetails.slotEnd)}`
-                        : "Settle the outstanding table balance."}
-                  </AlertDialogDescription>
+                <div className="flex min-w-0 items-start gap-3">
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-felt/10 text-felt">
+                    <ReceiptText className="h-5 w-5" aria-hidden="true" />
+                  </span>
+                  <div className="min-w-0">
+                    <AlertDialogTitle className="text-base sm:text-lg">
+                      Record payment
+                    </AlertDialogTitle>
+                    <AlertDialogDescription className="mt-1 break-words">
+                      {paymentEntryDetails && "tableName" in paymentEntryDetails
+                        ? `Table ${paymentEntryDetails.tableName} · ${paymentEntryDetails.startTime}${paymentEntryDetails.endTime ? `–${paymentEntryDetails.endTime}` : ""}`
+                        : paymentEntryDetails && "table" in paymentEntryDetails
+                          ? `Table ${paymentEntryDetails.table?.shortName ?? "—"} · ${time(paymentEntryDetails.slotStart)}–${time(paymentEntryDetails.slotEnd)}`
+                          : "Settle the outstanding table balance."}
+                    </AlertDialogDescription>
+                  </div>
                 </div>
-                <div className="shrink-0 text-right">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-                    Amount due
+                <div className="shrink-0 rounded-xl bg-background/80 px-3 py-2 text-right">
+                  <p className="text-[9px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
+                    Due
                   </p>
-                  <p className="text-2xl font-bold text-felt">{money(settlementNetAmount)}</p>
+                  <p className="text-xl font-bold leading-tight text-felt">
+                    {money(settlementNetAmount)}
+                  </p>
                 </div>
               </div>
               {paymentEntryDetails && "players" in paymentEntryDetails ? (
-                <p className="mt-2 truncate text-xs text-muted-foreground">
-                  {paymentEntryDetails.gameLabel ||
-                    gameFormatDescription(paymentEntryDetails.gameFormat) ||
-                    paymentEntryDetails.source}
-                  {" · "}
-                  {paymentEntryDetails.players.map((player) => player.name).join(" · ")}
+                <p className="mt-2 flex items-start gap-2 break-words text-xs text-muted-foreground [overflow-wrap:anywhere]">
+                  <UsersRound className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                  <span>
+                    {paymentEntryDetails.gameLabel ||
+                      gameFormatDescription(paymentEntryDetails.gameFormat) ||
+                      paymentEntryDetails.source}
+                    {" · "}
+                    {paymentEntryDetails.players.map((player) => player.name).join(" · ")}
+                  </span>
                 </p>
               ) : paymentEntryDetails && "customerName" in paymentEntryDetails ? (
-                <p className="mt-2 truncate text-xs text-muted-foreground">
-                  {paymentEntryDetails.customerName}
+                <p className="mt-2 flex items-start gap-2 break-words text-xs text-muted-foreground [overflow-wrap:anywhere]">
+                  <UserRound className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                  <span>{paymentEntryDetails.customerName}</span>
                 </p>
               ) : null}
             </AlertDialogHeader>
             <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain p-4 sm:p-5">
               {paymentEntryDetails ? (
-                <section className="space-y-3 rounded-2xl border border-border/80 bg-surface/70 p-3 sm:p-4">
+                <section className="space-y-3 rounded-2xl border border-border/80 bg-surface/55 p-3 sm:p-4">
+                  <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+                    <CircleDollarSign className="h-4 w-4 text-felt" aria-hidden="true" />
+                    Balance adjustment
+                  </div>
                   <div className="flex items-center justify-between gap-3">
                     {settlementDiscountAllowed ? (
                       <DiscountToggle
@@ -3232,7 +3512,16 @@ export default function SupervisorPage() {
                   ) : null}
                 </section>
               ) : null}
-              <Field id="settlement-payer" label="Paid by" required>
+              <Field
+                id="settlement-payer"
+                label={
+                  <span className="inline-flex items-center gap-1.5">
+                    <UserRound className="h-3.5 w-3.5" aria-hidden="true" />
+                    Paid by
+                  </span>
+                }
+                required
+              >
                 <Input
                   id="settlement-payer"
                   autoComplete="name"
@@ -3248,7 +3537,8 @@ export default function SupervisorPage() {
                 />
               </Field>
               <section className="space-y-2.5">
-                <Label className="text-xs font-semibold uppercase tracking-[0.1em] text-muted-foreground">
+                <Label className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.1em] text-muted-foreground">
+                  <CreditCard className="h-3.5 w-3.5" aria-hidden="true" />
                   Payment method
                 </Label>
                 <div className="grid grid-cols-3 gap-2">
@@ -3272,7 +3562,7 @@ export default function SupervisorPage() {
                           )
                         }
                         className={cn(
-                          "flex min-h-16 flex-col items-center justify-center gap-1.5 rounded-xl border text-xs font-semibold transition-colors",
+                          "relative flex min-h-16 flex-col items-center justify-center gap-1.5 rounded-xl border text-xs font-semibold transition-colors",
                           selected
                             ? "border-felt/50 bg-felt/10 text-felt"
                             : "border-border bg-background/60 text-muted-foreground hover:text-foreground",
@@ -3280,6 +3570,11 @@ export default function SupervisorPage() {
                       >
                         <MethodIcon className="h-4 w-4" aria-hidden="true" />
                         <span>{method.label}</span>
+                        {selected ? (
+                          <span className="absolute right-2 top-2 flex h-4 w-4 items-center justify-center rounded-full bg-felt text-primary-foreground">
+                            <Check className="h-3 w-3" aria-hidden="true" />
+                          </span>
+                        ) : null}
                       </button>
                     );
                   })}
@@ -3288,7 +3583,7 @@ export default function SupervisorPage() {
             </div>
             <AlertDialogFooter className="shrink-0 flex-col gap-2 border-t border-border/80 bg-background p-3 sm:flex-col sm:space-x-0 sm:p-4">
               <AlertDialogAction
-                className="min-h-12 w-full rounded-xl text-sm font-bold"
+                className="min-h-12 w-full gap-2 rounded-xl text-sm font-bold"
                 loading={isRecordingPayment}
                 loadingText="Recording payment…"
                 disabled={
@@ -3307,6 +3602,7 @@ export default function SupervisorPage() {
                   void recordCurrentPayment();
                 }}
               >
+                <ReceiptText className="h-4 w-4" aria-hidden="true" />
                 Record {paymentEntry?.paymentMethod?.toLowerCase() ?? "payment"} ·{" "}
                 {money(settlementNetAmount)}
               </AlertDialogAction>
@@ -3336,7 +3632,7 @@ function Metric({
   detail?: string;
 }) {
   return (
-    <Card className="border-border bg-surface">
+    <Card className="border-border/80 bg-surface shadow-[0_4px_18px_rgba(0,0,0,0.18)]">
       <CardContent className="p-2.5 sm:p-4">
         <Icon className="h-3.5 w-3.5 text-felt" aria-hidden="true" />
         <p className="mt-1.5 truncate text-[9px] uppercase tracking-[0.05em] text-muted-foreground sm:mt-2 sm:text-xs sm:tracking-[0.1em]">

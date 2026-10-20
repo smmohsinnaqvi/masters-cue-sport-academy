@@ -10,7 +10,13 @@ import {
   ONLINE_REQUEST_EXPIRY_MINUTES,
   WALKIN_EXTEND_INCREMENT_MINUTES,
 } from "@/lib/operations-constants";
-import { academyDateKey, academyDateTimeToUtc, academyMinutesOfDay } from "@/lib/academy-time";
+import {
+  academyDateKey,
+  academyDateRangeUtcBounds,
+  academyDateTimeToUtc,
+  academyMinutesOfDay,
+} from "@/lib/academy-time";
+import { isDateRangeValid } from "@/lib/date-range";
 import { reconcileSessionLifecycle } from "@/lib/session-reconciliation";
 import {
   calculateSettlementDiscount,
@@ -629,4 +635,64 @@ export async function getOperationsSummaryAction() {
     unpaidCount: unpaid._count._all,
     nextHourBookings,
   };
+}
+
+export async function getHistoryRangeSummaryAction(input: {
+  ledgerFrom: string;
+  ledgerTo: string;
+  bookingsFrom: string;
+  bookingsTo: string;
+}) {
+  await requireAcademyRole("supervisor");
+  if (
+    !input ||
+    !isDateRangeValid(input.ledgerFrom, input.ledgerTo) ||
+    !isDateRangeValid(input.bookingsFrom, input.bookingsTo)
+  ) {
+    throw new Error("Choose valid Ledger and Bookings date ranges");
+  }
+
+  const ledgerRange = academyDateRangeUtcBounds(input.ledgerFrom, input.ledgerTo);
+  const bookingsRange = academyDateRangeUtcBounds(input.bookingsFrom, input.bookingsTo);
+
+  const [ledgerTotals, bookingStatuses] = await Promise.all([
+    prisma.session.groupBy({
+      by: ["paymentStatus"],
+      where: { startTime: { gte: ledgerRange.start, lt: ledgerRange.end } },
+      _sum: { amount: true },
+      _count: { _all: true },
+    }),
+    prisma.session.groupBy({
+      by: ["status"],
+      where: {
+        source: "ONLINE",
+        startTime: { gte: bookingsRange.start, lt: bookingsRange.end },
+      },
+      _count: { _all: true },
+    }),
+  ]);
+
+  const ledger = ledgerTotals.reduce(
+    (totals, group) => {
+      totals.sessionCount += group._count._all;
+      if (group.paymentStatus === "PAID") totals.paidAmount = group._sum.amount ?? 0;
+      if (group.paymentStatus === "UNPAID") totals.unpaidAmount = group._sum.amount ?? 0;
+      return totals;
+    },
+    { paidAmount: 0, unpaidAmount: 0, sessionCount: 0 },
+  );
+  const bookings = bookingStatuses.reduce(
+    (totals, group) => {
+      const count = group._count._all;
+      totals.totalCount += count;
+      if (group.status === "HELD") totals.pendingCount += count;
+      if (group.status === "CONFIRMED" || group.status === "ONGOING") {
+        totals.confirmedCount += count;
+      }
+      return totals;
+    },
+    { pendingCount: 0, confirmedCount: 0, totalCount: 0 },
+  );
+
+  return { ledger, bookings };
 }

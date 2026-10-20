@@ -27,7 +27,7 @@ export function DateRangeFilter({
   const [customEditing, setCustomEditing] = useState(false);
   const [customDraft, setCustomDraft] = useState<DateRangeSelection>(() => value);
   const customValid = isDateRangeValid(customDraft.from, customDraft.to);
-  const visibleRange = customEditing ? customDraft : value;
+  const visibleRange = customEditing || value.preset === "CUSTOM" ? customDraft : value;
   const days = inclusiveDateCount(visibleRange.from, visibleRange.to);
 
   function selectPreset(preset: DateRangePreset) {
@@ -47,6 +47,7 @@ export function DateRangeFilter({
   function moveRange(direction: -1 | 1) {
     const range = customEditing ? customDraft : value;
     const shifted = shiftDateRange(range, direction);
+    setCustomDraft(shifted);
     setCustomEditing(false);
     onChange(shifted);
   }
@@ -59,19 +60,11 @@ export function DateRangeFilter({
 
   return (
     <section
-      className="space-y-3 rounded-2xl border border-border/80 bg-background/35 p-3 sm:p-4"
+      className="space-y-2.5 rounded-2xl border border-border/80 bg-background/35 p-3"
       aria-label={`${label} date range`}
     >
       <div className="flex min-w-0 items-center gap-2">
-        <button
-          type="button"
-          aria-label="Previous date range"
-          onClick={() => moveRange(-1)}
-          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-border bg-surface text-muted-foreground transition-colors hover:text-foreground"
-        >
-          <ChevronLeft className="h-4 w-4" aria-hidden="true" />
-        </button>
-        <div className="flex min-w-0 flex-1 items-center gap-2">
+        <div className="flex min-w-0 flex-1 items-center gap-2.5 rounded-xl bg-surface/70 px-3 py-2">
           <CalendarDays className="h-4 w-4 shrink-0 text-felt" aria-hidden="true" />
           <div className="min-w-0">
             <p className="truncate text-sm font-bold text-foreground">
@@ -79,22 +72,29 @@ export function DateRangeFilter({
                 ? formatDateRangeKey(visibleRange.from)
                 : `${formatDateRangeKey(visibleRange.from)} – ${formatDateRangeKey(visibleRange.to)}`}
             </p>
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-[10px] text-muted-foreground">
               {days} {days === 1 ? "day" : "days"} · Academy local time
             </p>
           </div>
         </div>
         <button
           type="button"
+          aria-label="Previous date range"
+          onClick={() => moveRange(-1)}
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-border bg-surface text-muted-foreground transition-colors hover:text-foreground"
+        >
+          <ChevronLeft className="h-4 w-4" aria-hidden="true" />
+        </button>
+        <button
+          type="button"
           aria-label="Next date range"
           onClick={() => moveRange(1)}
-          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-border bg-surface text-muted-foreground transition-colors hover:text-foreground"
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-border bg-surface text-muted-foreground transition-colors hover:text-foreground"
         >
           <ChevronRight className="h-4 w-4" aria-hidden="true" />
         </button>
       </div>
-
-      <div className="flex gap-2 overflow-x-auto pb-1" role="group" aria-label={label}>
+      <div className="no-scrollbar flex gap-2 overflow-x-auto pb-1" role="group" aria-label={label}>
         {DATE_RANGE_PRESETS.map((preset) => {
           const selected = customEditing
             ? preset.value === "CUSTOM"
@@ -106,7 +106,7 @@ export function DateRangeFilter({
               aria-pressed={selected}
               onClick={() => selectPreset(preset.value)}
               className={cn(
-                "min-h-9 shrink-0 rounded-full border px-3.5 text-xs font-semibold transition-colors",
+                "min-h-9 shrink-0 whitespace-nowrap rounded-full border px-3 py-1 text-[11px] font-semibold leading-tight transition-colors sm:px-3.5 sm:text-xs",
                 selected
                   ? "border-felt bg-felt text-primary-foreground"
                   : "border-border bg-surface/70 text-muted-foreground hover:text-foreground",
@@ -118,7 +118,7 @@ export function DateRangeFilter({
         })}
       </div>
 
-      {customEditing ? (
+      {customEditing || value.preset === "CUSTOM" ? (
         <div className="space-y-2 border-t border-border/70 pt-3">
           <div className="grid grid-cols-2 gap-2">
             <label className="min-w-0 space-y-1 text-xs font-medium text-muted-foreground">
