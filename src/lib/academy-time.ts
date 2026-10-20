@@ -91,3 +91,10 @@ export function academyDayUtcBounds(dateKey: string) {
   const start = academyDateTimeToUtc(dateKey, "00:00");
   return { start, end: new Date(start.getTime() + 86_400_000) };
 }
+
+export function academyDateRangeUtcBounds(from: string, to: string) {
+  const start = academyDayUtcBounds(from).start;
+  const end = academyDayUtcBounds(to).start;
+  if (start > end) throw new Error("Start date must be before or equal to end date");
+  return { start, end };
+}

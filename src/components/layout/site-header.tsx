@@ -19,6 +19,8 @@ export function SiteHeader() {
   const [session, setSession] = useState<AcademySession | null>(null);
   const pathname = usePathname();
   const router = useRouter();
+  const isStaffRoute = pathname.startsWith("/admin") || pathname.startsWith("/supervisor");
+  const isStaffView = isStaffRoute;
 
   useEffect(() => {
     let active = true;
@@ -31,28 +33,24 @@ export function SiteHeader() {
   }, [pathname]);
 
   const nav = useMemo(() => {
-    const items = [
+    if (isStaffView) {
+      const items: { to: string; label: string }[] = [];
+      if (session?.role === "admin") {
+        items.push({ to: "/admin", label: "Admin" });
+        items.push({ to: "/supervisor", label: "Supervisor" });
+      } else if (session?.role === "supervisor") {
+        items.push({ to: "/supervisor", label: "Supervisor" });
+      }
+      return items;
+    }
+
+    return [
       { to: "/", label: "Home" },
       { to: "/services", label: "Services" },
       { to: "/shop", label: "Shop" },
       { to: "/booking", label: "Booking" },
     ];
-
-    if (session?.role === "admin") {
-      items.push({ to: "/admin", label: "Admin" });
-      items.push({ to: "/supervisor", label: "Supervisor" });
-    }
-
-    if (session?.role === "supervisor") {
-      items.push({ to: "/supervisor", label: "Supervisor" });
-    }
-
-    if (!session) {
-      items.push({ to: "/login", label: "Login" });
-    }
-
-    return items;
-  }, [session]);
+  }, [isStaffView, session?.role]);
 
   async function handleLogout() {
     await logoutAction();
@@ -64,8 +62,8 @@ export function SiteHeader() {
     <header className="sticky top-0 z-40 border-b border-border/70 bg-background/95 backdrop-blur-xl">
       <nav className="mx-auto flex min-h-[4.5rem] max-w-7xl items-center justify-between gap-2 px-3 sm:px-6 lg:px-8">
         <Link
-          href="/"
-          aria-label={`${ACADEMY.name} home`}
+          href={isStaffView ? (session?.role === "admin" ? "/admin" : "/supervisor") : "/"}
+          aria-label={isStaffView ? `${ACADEMY.name} staff dashboard` : `${ACADEMY.name} home`}
           className="flex min-h-12 min-w-0 items-center gap-2.5 pr-1 sm:gap-3"
         >
           <span className="flex h-11 w-[72px] shrink-0 items-center justify-center overflow-hidden rounded-md bg-black p-1 sm:h-12 sm:w-[82px]">
@@ -107,11 +105,11 @@ export function SiteHeader() {
               </Link>
             );
           })}
-          {!session ? (
+          {!isStaffView ? (
             <Button asChild className="ml-2 min-h-11 rounded-full px-5">
               <Link href="/booking">Book a table</Link>
             </Button>
-          ) : (
+          ) : session ? (
             <Button
               type="button"
               variant="outline"
@@ -121,13 +119,15 @@ export function SiteHeader() {
               <LogOut className="mr-2 h-4 w-4" aria-hidden="true" />
               Logout
             </Button>
-          )}
+          ) : null}
         </div>
 
         <div className="flex shrink-0 items-center gap-2 lg:hidden">
-          <Button asChild className="min-h-11 rounded-full px-4">
-            <Link href="/booking">Book</Link>
-          </Button>
+          {!isStaffView ? (
+            <Button asChild className="min-h-11 rounded-full px-4">
+              <Link href="/booking">Book</Link>
+            </Button>
+          ) : null}
           <Button
             type="button"
             variant="outline"
@@ -165,7 +165,7 @@ export function SiteHeader() {
             </Link>
           );
         })}
-        {session ? (
+        {isStaffView && session ? (
           <button
             type="button"
             onClick={handleLogout}

@@ -38,6 +38,8 @@ export type SessionPageFilters = {
   search?: string;
   paymentStatus?: "ALL" | "PAID" | "UNPAID";
   tableType?: "ALL" | "SNOOKER" | "POOL";
+  dateFrom?: string;
+  dateTo?: string;
 };
 
 export function useSessionPages(
@@ -62,6 +64,8 @@ export function useSessionPages(
   const requestedSearch = filters?.search ?? "";
   const paymentStatus = filters?.paymentStatus ?? "ALL";
   const tableType = filters?.tableType ?? "ALL";
+  const dateFrom = filters?.dateFrom ?? "";
+  const dateTo = filters?.dateTo ?? "";
   const [search, setSearch] = useState(requestedSearch);
 
   useEffect(() => {
@@ -97,6 +101,10 @@ export function useSessionPages(
         }
         if (view === "ledger" && tableType !== "ALL") {
           params.set("tableType", tableType);
+        }
+        if ((view === "ledger" || view === "bookings") && dateFrom && dateTo) {
+          params.set("dateFrom", dateFrom);
+          params.set("dateTo", dateTo);
         }
         if (pageCursor) params.set("cursor", pageCursor);
         const response = await fetch(`/api/ledger?${params}`, {
@@ -135,7 +143,7 @@ export function useSessionPages(
         }
       }
     },
-    [paymentStatus, search, tableType, view],
+    [dateFrom, dateTo, paymentStatus, search, tableType, view],
   );
 
   useEffect(() => {

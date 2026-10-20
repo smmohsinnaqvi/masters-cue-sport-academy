@@ -70,6 +70,7 @@ import { cn } from "@/lib/utils";
 import { Field } from "@/components/ui/field";
 import { fieldA11yProps } from "@/components/ui/field-utils";
 import { Checkbox } from "@/components/ui/checkbox";
+import { DateRangeFilter } from "@/components/supervisor/date-range-filter";
 import {
   discountPercentFromBasisPoints,
   discountPercentToBasisPoints,
@@ -84,6 +85,7 @@ import {
   type SessionPlayer,
 } from "@/lib/session-pricing";
 import { WALKIN_EXTEND_INCREMENT_MINUTES } from "@/lib/operations-constants";
+import { initialDateRange, type DateRangeSelection } from "@/lib/date-range";
 import {
   WALKIN_CUSTOM_DURATION_MAX_MINUTES,
   WALKIN_CUSTOM_DURATION_MINUTES,
@@ -112,6 +114,7 @@ type Entry = {
   playerOne: string;
   playerTwo: string;
   customerPhone: string;
+  startDate: string;
   startTime: string;
   endTime: string;
   payment: string;
@@ -134,6 +137,7 @@ type Booking = {
   id: string;
   tableId: string;
   customerName: string;
+  slotStartDate: string;
   slotStart: string;
   slotEnd: string;
   status: "HELD" | "CONFIRMED" | "ONGOING" | "COMPLETED" | "CANCELLED" | "NO_SHOW" | "EXPIRED";
@@ -253,6 +257,16 @@ function time(value: Date | string | null) {
     hour: "2-digit",
     minute: "2-digit",
     hour12: true,
+  });
+}
+
+function date(value: Date | string | null) {
+  if (!value) return "";
+  return new Date(value).toLocaleDateString("en-IN", {
+    timeZone: "Asia/Kolkata",
+    day: "numeric",
+    month: "short",
+    year: "numeric",
   });
 }
 
@@ -390,6 +404,7 @@ function entryFromPage(session: SessionPageRow): Entry {
     playerTwo:
       session.source === "WALKIN" ? (participants[1]?.name ?? "") : (session.customerPhone ?? ""),
     customerPhone: session.customerPhone ?? "",
+    startDate: date(session.startTime),
     startTime: time(session.actualStart ?? session.startTime),
     endTime: time(session.actualEnd ?? session.plannedEnd),
     payment: session.paymentStatus,
@@ -415,6 +430,7 @@ function bookingFromPage(session: SessionPageRow): Booking {
     id: session.id,
     tableId: session.tableId,
     customerName: session.customerName ?? "Guest",
+    slotStartDate: date(session.startTime),
     slotStart: session.startTime,
     slotEnd: session.plannedEnd,
     status: session.status,
@@ -441,14 +457,25 @@ export default function SupervisorPage() {
   const [expandedBookings, setExpandedBookings] = useState<Record<string, boolean>>({});
   const [currentTime, setCurrentTime] = useState(() => Date.now());
   const [ledgerSearch, setLedgerSearch] = useState("");
+  const [ledgerDateRange, setLedgerDateRange] = useState<DateRangeSelection>(() =>
+    initialDateRange(),
+  );
+  const [bookingsDateRange, setBookingsDateRange] = useState<DateRangeSelection>(() =>
+    initialDateRange(),
+  );
   const [ledgerPaymentFilter, setLedgerPaymentFilter] = useState<LedgerPaymentFilter>("ALL");
   const [ledgerTableFilter, setLedgerTableFilter] = useState<LedgerTableFilter>("ALL");
   const ledgerPage = useSessionPages("ledger", refreshKey, {
     search: ledgerSearch,
     paymentStatus: ledgerPaymentFilter,
     tableType: ledgerTableFilter,
+    dateFrom: ledgerDateRange.from,
+    dateTo: ledgerDateRange.to,
   });
-  const bookingsPage = useSessionPages("bookings", refreshKey);
+  const bookingsPage = useSessionPages("bookings", refreshKey, {
+    dateFrom: bookingsDateRange.from,
+    dateTo: bookingsDateRange.to,
+  });
   const duesPage = useSessionPages("dues", refreshKey);
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Entry | null>(null);
@@ -1424,7 +1451,7 @@ export default function SupervisorPage() {
                 >
                   <span>{view}</span>
                   {view === "unpaid" && summary.unpaidCount > 0 ? (
-                    <span className="ml-1 inline-flex min-w-5 items-center justify-center rounded-full bg-destructive px-1.5 py-0.5 text-[10px] font-bold leading-none text-destructive-foreground">
+                    <span className="relative -top-1 ml-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[9px] font-bold leading-none text-destructive-foreground">
                       {summary.unpaidCount}
                     </span>
                   ) : null}
@@ -1594,6 +1621,7 @@ export default function SupervisorPage() {
                             statusLabel: "In use",
                             playerOne,
                             playerTwo,
+                            startDate: date(active.startTime),
                             startTime: time(start ?? null),
                             endTime: time(active.plannedEnd),
                             payment: active.paymentStatus,
@@ -2051,24 +2079,24 @@ export default function SupervisorPage() {
                 {duesPage.hasMore ? <div ref={duesPage.sentinelRef} className="h-4" /> : null}
               </section>
             ) : null}
-            <Card
-              className={cn(
-                "min-w-0 border-border bg-surface",
-                activeHistory !== "ledger" && "hidden",
-              )}
-            >
-              <CardHeader className="gap-3 p-4 sm:p-6">
+            <section className={cn("min-w-0 space-y-4", activeHistory !== "ledger" && "hidden")}>
+              <div className="space-y-3">
                 <div>
-                  <CardTitle>Ledger</CardTitle>
+                  <h2 className="text-lg font-semibold">Ledger</h2>
                   <p className="mt-1 text-sm text-muted-foreground">
-                    Session history and payment records.
+                    Audit log of settled sessions, split payments and match receipts.
                   </p>
                 </div>
+                <DateRangeFilter
+                  value={ledgerDateRange}
+                  onChange={setLedgerDateRange}
+                  label="Ledger date presets"
+                />
                 <Input
                   value={ledgerSearch}
                   onChange={(event) => setLedgerSearch(event.target.value)}
-                  placeholder="Search player, phone, or reference"
-                  aria-label="Search ledger by player, phone, or booking reference"
+                  placeholder="Search player, phone, table, or reference"
+                  aria-label="Search ledger by player, phone, table, or booking reference"
                   className="min-h-11"
                 />
                 <div className="space-y-2.5" aria-label="Ledger filters">
@@ -2145,8 +2173,8 @@ export default function SupervisorPage() {
                     </div>
                   </div>
                 </div>
-              </CardHeader>
-              <CardContent className="overflow-hidden p-0">
+              </div>
+              <div className="min-w-0 overflow-hidden">
                 <div
                   ref={ledgerPage.scrollRootRef}
                   className="hidden max-h-[62vh] touch-pan-x touch-pan-y overflow-auto overscroll-contain lg:block"
@@ -2212,7 +2240,10 @@ export default function SupervisorPage() {
                                 {entry.statusLabel}
                               </Badge>
                             </td>
-                            <td className="px-4 py-3">{entry.startTime}</td>
+                            <td className="px-4 py-3">
+                              <div>{entry.startDate}</div>
+                              <div className="text-xs text-muted-foreground">{entry.startTime}</div>
+                            </td>
                             <td className="px-4 py-3">{entry.endTime || "—"}</td>
                             <td className="px-4 py-3">
                               {entry.source === "ONLINE"
@@ -2314,7 +2345,7 @@ export default function SupervisorPage() {
                   ) : null}
                   {ledgerPage.hasMore ? <div ref={ledgerPage.sentinelRef} className="h-4" /> : null}
                 </div>
-                <div className="space-y-3 p-3 lg:hidden">
+                <div className="space-y-3 lg:hidden">
                   {entries.length === 0 && ledgerPage.loading ? (
                     Array.from({ length: 3 }, (_, index) => (
                       <div key={index} className="space-y-3 rounded-xl border border-border p-4">
@@ -2331,11 +2362,11 @@ export default function SupervisorPage() {
                     entries.map((entry) => (
                       <article
                         key={entry.id}
-                        className="rounded-2xl border border-border bg-background/60 p-4 sm:p-5"
+                        className="min-w-0 overflow-hidden rounded-2xl border border-border bg-background/60 p-4 sm:p-5"
                       >
                         <div className="flex items-start justify-between gap-3">
                           <div className="min-w-0">
-                            <p className="truncate text-base font-bold">
+                            <p className="break-words text-base font-bold leading-snug [overflow-wrap:anywhere]">
                               {entry.payerName || entry.playerOne}
                             </p>
                             <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
@@ -2365,14 +2396,26 @@ export default function SupervisorPage() {
                             ) : null}
                           </div>
                         </div>
-                        <p className="mt-3 text-sm font-medium">
-                          {entry.gameLabel || gameFormatDescription(entry.gameFormat)
-                            ? `${entry.gameLabel || gameFormatDescription(entry.gameFormat)} · `
-                            : ""}
-                          {entry.players.map((player) => player.name).join(" · ")}
+                        <p className="mt-3 break-words text-sm font-medium [overflow-wrap:anywhere]">
+                          {entry.gameLabel ||
+                            gameFormatDescription(entry.gameFormat) ||
+                            entry.source}
                         </p>
+                        {entry.players.length > 0 ? (
+                          <div className="mt-2 flex flex-wrap gap-1.5">
+                            {entry.players.map((player, index) => (
+                              <span
+                                key={`${entry.id}-mobile-player-${index}`}
+                                className="max-w-full break-words rounded-full bg-surface-strong px-2.5 py-1 text-xs text-foreground [overflow-wrap:anywhere]"
+                              >
+                                {player.team ? `Team ${player.team} · ` : ""}
+                                {player.name}
+                              </span>
+                            ))}
+                          </div>
+                        ) : null}
                         {entry.payerShares.length > 0 ? (
-                          <p className="mt-1 text-xs text-muted-foreground">
+                          <p className="mt-2 break-words text-xs text-muted-foreground [overflow-wrap:anywhere]">
                             Shares:{" "}
                             {entry.payerShares
                               .map((share) => `${share.name} ${money(share.amount)}`)
@@ -2395,13 +2438,17 @@ export default function SupervisorPage() {
                             {entry.payment === "PAID" ? `Paid · ${entry.paymentMethod}` : "Unpaid"}
                           </Badge>
                         </div>
-                        <div className="mt-3 flex items-center justify-between gap-3 text-xs text-muted-foreground">
-                          <span>
+                        <div className="mt-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 rounded-xl bg-background/70 px-3 py-2 text-xs text-muted-foreground">
+                          <span className="inline-flex min-w-0 items-center gap-1.5">
+                            <CalendarClock className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                            <span className="break-words">{entry.startDate}</span>
+                          </span>
+                          <span className="shrink-0">
                             {entry.durationMinutes
                               ? `${entry.durationMinutes} min`
                               : "Duration pending"}
                           </span>
-                          <span>
+                          <span className="w-full break-words sm:w-auto">
                             {entry.startTime}
                             {entry.endTime ? ` – ${entry.endTime}` : ""}
                           </span>
@@ -2446,20 +2493,25 @@ export default function SupervisorPage() {
                     </Button>
                   ) : null}
                 </div>
-              </CardContent>
-            </Card>
-            <Card
-              className={cn(
-                "min-w-0 border-border bg-surface",
-                activeHistory !== "bookings" && "hidden",
-              )}
-            >
-              <CardHeader className="p-4 sm:p-6">
-                <CardTitle>Bookings</CardTitle>
-              </CardHeader>
-              <CardContent
+              </div>
+            </section>
+            <section className={cn("min-w-0 space-y-4", activeHistory !== "bookings" && "hidden")}>
+              <div className="space-y-3">
+                <div>
+                  <h2 className="text-lg font-semibold">Bookings</h2>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Online booking requests and reservations.
+                  </p>
+                </div>
+                <DateRangeFilter
+                  value={bookingsDateRange}
+                  onChange={setBookingsDateRange}
+                  label="Bookings date presets"
+                />
+              </div>
+              <div
                 ref={bookingsPage.scrollRootRef}
-                className="max-h-[70vh] space-y-4 overflow-y-auto overscroll-contain p-4 pt-0 sm:p-6 sm:pt-0"
+                className="min-w-0 max-h-[70vh] space-y-3 overflow-y-auto overscroll-contain"
               >
                 <p className="text-sm text-muted-foreground">
                   Pending, upcoming, in-progress, and past online bookings.
@@ -2480,14 +2532,16 @@ export default function SupervisorPage() {
                   </div>
                 ) : (
                   bookings.map((booking) => (
-                    <div
+                    <article
                       key={booking.id}
-                      className="rounded-lg border border-border bg-background/60 p-4"
+                      className="min-w-0 overflow-hidden rounded-2xl border border-border bg-background/60 p-4"
                     >
                       <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <p className="font-medium">{booking.customerName}</p>
-                          <p className="text-xs text-muted-foreground">
+                        <div className="min-w-0 flex-1">
+                          <p className="break-words font-semibold leading-snug [overflow-wrap:anywhere]">
+                            {booking.customerName}
+                          </p>
+                          <p className="mt-1 break-words text-xs text-muted-foreground [overflow-wrap:anywhere]">
                             {booking.table?.shortName ?? booking.tableId} ·{" "}
                             {time(booking.slotStart)}–{time(booking.slotEnd)}
                           </p>
@@ -2495,8 +2549,14 @@ export default function SupervisorPage() {
                             Reserved charge: ₹{booking.amount.toFixed(2)}
                           </p>
                         </div>
-                        <Badge variant="outline">{booking.status}</Badge>
+                        <Badge variant="outline" className="shrink-0">
+                          {booking.status}
+                        </Badge>
                       </div>
+                      <p className="mt-3 flex items-center gap-1.5 text-xs text-muted-foreground">
+                        <CalendarClock className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                        {booking.slotStartDate}
+                      </p>
                       <div className="mt-4 flex flex-wrap gap-2">
                         {booking.status === "HELD" ? (
                           <Button
@@ -2571,7 +2631,7 @@ export default function SupervisorPage() {
                           </Button>
                         ) : null}
                       </div>
-                    </div>
+                    </article>
                   ))
                 )}
                 {bookings.length > 0 && bookingsPage.loading ? (
@@ -2590,8 +2650,8 @@ export default function SupervisorPage() {
                 {bookingsPage.hasMore ? (
                   <div ref={bookingsPage.sentinelRef} className="h-4" />
                 ) : null}
-              </CardContent>
-            </Card>
+              </div>
+            </section>
           </div>
         </main>
         <AlertDialog

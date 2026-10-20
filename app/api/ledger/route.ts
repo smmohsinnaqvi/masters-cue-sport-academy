@@ -9,6 +9,8 @@ import {
   isLedgerPaymentFilter,
   isLedgerTableTypeFilter,
 } from "@/lib/ledger-filters";
+import { academyDateRangeUtcBounds } from "@/lib/academy-time";
+import { isDateRangeKey } from "@/lib/date-range";
 
 function presentSessions<
   T extends {
@@ -40,6 +42,8 @@ export async function GET(request: Request) {
   const search = url.searchParams.get("search")?.trim() ?? "";
   const paymentFilter = url.searchParams.get("payment") ?? "ALL";
   const tableTypeFilter = url.searchParams.get("tableType") ?? "ALL";
+  const dateFrom = url.searchParams.get("dateFrom") ?? "";
+  const dateTo = url.searchParams.get("dateTo") ?? "";
   if (view !== "ledger" && view !== "bookings" && view !== "dues") {
     return NextResponse.json({ error: "Invalid ledger view" }, { status: 400 });
   }
@@ -56,6 +60,18 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Invalid table type filter" }, { status: 400 });
   }
   if (
+    Boolean(dateFrom) !== Boolean(dateTo) ||
+    (dateFrom && (!isDateRangeKey(dateFrom) || !isDateRangeKey(dateTo)))
+  ) {
+    return NextResponse.json({ error: "Choose a valid start and end date" }, { status: 400 });
+  }
+  if (dateFrom && dateFrom > dateTo) {
+    return NextResponse.json(
+      { error: "Start date must be before or equal to end date" },
+      { status: 400 },
+    );
+  }
+  if (
     ["date", "tableId", "group", "source", "status"].some((filter) => url.searchParams.has(filter))
   ) {
     return NextResponse.json({ error: "Only text search is supported" }, { status: 400 });
@@ -63,6 +79,12 @@ export async function GET(request: Request) {
   if (view !== "ledger" && (url.searchParams.has("payment") || url.searchParams.has("tableType"))) {
     return NextResponse.json(
       { error: "Filters are only supported for ledger view" },
+      { status: 400 },
+    );
+  }
+  if (view === "dues" && (dateFrom || dateTo)) {
+    return NextResponse.json(
+      { error: "Date filters are supported only for ledger and bookings views" },
       { status: 400 },
     );
   }
@@ -80,6 +102,17 @@ export async function GET(request: Request) {
         : {};
   if (view === "ledger") {
     Object.assign(where, buildLedgerFilterWhere(paymentFilter, tableTypeFilter));
+  }
+  if (dateFrom && dateTo) {
+    try {
+      const { start, end } = academyDateRangeUtcBounds(dateFrom, dateTo);
+      where.startTime = { gte: start, lt: end };
+    } catch (reason) {
+      return NextResponse.json(
+        { error: reason instanceof Error ? reason.message : "Invalid date range" },
+        { status: 400 },
+      );
+    }
   }
   if (search) {
     const phoneDigits = search.replace(/\D/g, "");
