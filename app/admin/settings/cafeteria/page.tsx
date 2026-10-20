@@ -14,6 +14,9 @@ import { SettingsListSkeleton } from "@/components/admin/settings-skeleton";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Field } from "@/components/ui/field";
+import { fieldA11yProps } from "@/components/ui/field-utils";
+import { cafeteriaItemFormSchema, wholeRupeesSchema } from "@/lib/form-validation";
 
 type Item = { id: string; name: string; note: string | null; price: number };
 const emptyForm = { name: "", note: "", price: "" };
@@ -24,6 +27,7 @@ export default function CafeteriaSettingsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
   async function loadItems() {
     try {
@@ -43,17 +47,19 @@ export default function CafeteriaSettingsPage() {
 
   async function addItem(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!form.name.trim()) {
-      setError("Item name is required.");
+    const validation = cafeteriaItemFormSchema.safeParse(form);
+    if (!validation.success) {
+      setFieldErrors(
+        Object.fromEntries(validation.error.issues.map((issue) => [issue.path[0], issue.message])),
+      );
       return;
     }
+    setFieldErrors({});
     setSaving(true);
     setError("");
     try {
       await createCafeteriaItemAction({
-        name: form.name,
-        note: form.note,
-        price: Number(form.price || 0),
+        ...validation.data,
       });
       setForm(emptyForm);
       await loadItems();
@@ -95,28 +101,49 @@ export default function CafeteriaSettingsPage() {
         </CardHeader>
         <CardContent className="space-y-6">
           <form onSubmit={addItem} className="grid gap-3 sm:grid-cols-[1fr_1fr_10rem_auto]">
-            <Input
-              value={form.name}
-              onChange={(event) => setForm({ ...form, name: event.target.value })}
-              placeholder="Item name"
-              aria-label="Item name"
-              required
-            />
-            <Input
-              value={form.note}
-              onChange={(event) => setForm({ ...form, note: event.target.value })}
-              placeholder="Short note (optional)"
-              aria-label="Item note"
-            />
-            <Input
-              type="number"
-              min="0"
-              step="1"
-              value={form.price}
-              onChange={(event) => setForm({ ...form, price: event.target.value })}
-              placeholder="Price (₹)"
-              aria-label="Price"
-            />
+            <Field id="cafe-name" label="Item name" required error={fieldErrors.name}>
+              <Input
+                id="cafe-name"
+                value={form.name}
+                onChange={(event) => {
+                  setForm({ ...form, name: event.target.value });
+                  setFieldErrors((current) => ({ ...current, name: "" }));
+                }}
+                placeholder="Item name"
+                maxLength={120}
+                required
+                {...fieldA11yProps("cafe-name", fieldErrors.name)}
+              />
+            </Field>
+            <Field id="cafe-note" label="Short note" description="Optional · up to 200 characters">
+              <Input
+                id="cafe-note"
+                value={form.note}
+                onChange={(event) => {
+                  setForm({ ...form, note: event.target.value });
+                  setFieldErrors((current) => ({ ...current, note: "" }));
+                }}
+                placeholder="Short note"
+                maxLength={200}
+              />
+            </Field>
+            <Field id="cafe-price" label="Price (₹)" error={fieldErrors.price}>
+              <Input
+                id="cafe-price"
+                type="number"
+                inputMode="numeric"
+                min="0"
+                max="999999999"
+                step="1"
+                value={form.price}
+                onChange={(event) => {
+                  setForm({ ...form, price: event.target.value });
+                  setFieldErrors((current) => ({ ...current, price: "" }));
+                }}
+                placeholder="0"
+                {...fieldA11yProps("cafe-price", fieldErrors.price)}
+              />
+            </Field>
             <Button type="submit" disabled={saving}>
               {saving ? "Adding…" : "Add item"}
             </Button>
@@ -160,20 +187,26 @@ function ItemRow({
     note: item.note ?? "",
     price: String(item.price),
   });
+  const [editError, setEditError] = useState("");
   return (
     <div className="flex flex-col gap-3 rounded-lg border border-border p-3 sm:flex-row sm:items-center">
       {editing ? (
         <>
           <Input
             value={draft.name}
-            onChange={(event) => setDraft({ ...draft, name: event.target.value })}
+            onChange={(event) => {
+              setDraft({ ...draft, name: event.target.value });
+              setEditError("");
+            }}
             aria-label="Item name"
+            maxLength={120}
           />
           <Input
             value={draft.note}
             onChange={(event) => setDraft({ ...draft, note: event.target.value })}
             placeholder="Note"
             aria-label="Item note"
+            maxLength={200}
           />
           <Input
             className="sm:max-w-32"
@@ -181,17 +214,34 @@ function ItemRow({
             min="0"
             step="1"
             value={draft.price}
-            onChange={(event) => setDraft({ ...draft, price: event.target.value })}
+            onChange={(event) => {
+              setDraft({ ...draft, price: event.target.value });
+              setEditError("");
+            }}
             aria-label="Price"
           />
+          {editError ? (
+            <p role="alert" className="w-full text-xs text-destructive">
+              {editError}
+            </p>
+          ) : null}
           <Button
             size="sm"
             disabled={saving}
             onClick={async () => {
-              if (!draft.name.trim()) return;
+              const price = wholeRupeesSchema.safeParse(draft.price);
+              if (!draft.name.trim()) {
+                setEditError("Item name is required.");
+                return;
+              }
+              if (!price.success) {
+                setEditError(price.error.issues[0]?.message ?? "Enter a valid whole price.");
+                return;
+              }
+              setEditError("");
               setSaving(true);
               try {
-                const saved = await onSave({ ...item, ...draft, price: Number(draft.price || 0) });
+                const saved = await onSave({ ...item, ...draft, price: price.data });
                 if (saved) setEditing(false);
               } finally {
                 setSaving(false);

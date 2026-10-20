@@ -14,7 +14,8 @@
     "db:migrate": "prisma migrate dev",
     "db:seed": "node scripts/seed-db.cjs",
     "db:seed-shop": "node scripts/seed-shop.cjs",
-    "db:studio": "prisma studio"
+    "db:studio": "prisma studio",
+    "test": "node --experimental-strip-types --test tests/session-pricing.test.mjs tests/ledger-filters.test.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",

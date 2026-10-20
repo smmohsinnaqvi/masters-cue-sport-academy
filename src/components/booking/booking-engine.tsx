@@ -5,6 +5,8 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Field } from "@/components/ui/field";
+import { fieldA11yProps } from "@/components/ui/field-utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Drawer,
@@ -47,6 +49,7 @@ import {
 import { useLiveBookings } from "@/hooks/useLiveBookings";
 import { useLiveTables } from "@/hooks/useLiveTables";
 import { cn } from "@/lib/utils";
+import { bookingCustomerSchema, sanitizeIndianMobileInput } from "@/lib/form-validation";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -67,6 +70,7 @@ export function BookingEngine({ initialNow }: { initialNow: string }) {
     bookings,
     loading: bookingsLoading,
     error: bookingsError,
+    refresh: refreshBookings,
   } = useLiveBookings(
     dateOffset,
     academyDateKeyForOffset(dateOffset, now),
@@ -83,6 +87,10 @@ export function BookingEngine({ initialNow }: { initialNow: string }) {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [bookingFieldErrors, setBookingFieldErrors] = useState<{
+    name?: string;
+    phone?: string;
+  }>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const table = tables.find((t) => t.id === tableId) ?? tables[0] ?? null;
   const selectedDate = dateOptions.find((d) => d.offset === dateOffset) ?? dateOptions[0]!;
@@ -206,12 +214,22 @@ export function BookingEngine({ initialNow }: { initialNow: string }) {
     setConfirmed(false);
     setName("");
     setPhone("");
+    setBookingFieldErrors({});
     setDrawerOpen(true);
   }
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSubmitError(null);
+    const result = bookingCustomerSchema.safeParse({ name, phone });
+    if (!result.success) {
+      setBookingFieldErrors({
+        name: result.error.issues.find((issue) => issue.path[0] === "name")?.message,
+        phone: result.error.issues.find((issue) => issue.path[0] === "phone")?.message,
+      });
+      return;
+    }
+    setBookingFieldErrors({});
     setConfirmOpen(true);
   }
 
@@ -241,9 +259,10 @@ export function BookingEngine({ initialNow }: { initialNow: string }) {
     const end = new Date(start.getTime() + duration * 60_000);
 
     setIsSubmitting(true);
+    setSubmitError(null);
     try {
       if (!table) throw new Error("No table is selected");
-      const booking = await createOnlineBookingAction({
+      await createOnlineBookingAction({
         tableId: table.id,
         customerName: name,
         customerPhone: phone,
@@ -252,6 +271,13 @@ export function BookingEngine({ initialNow }: { initialNow: string }) {
       });
       setConfirmOpen(false);
       setConfirmed(true);
+      try {
+        await refreshBookings();
+      } catch {
+        setSubmitError(
+          "Your booking was saved, but availability could not refresh. Reload the page to see the latest table status.",
+        );
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : "";
       setSubmitError(
@@ -865,32 +891,48 @@ export function BookingEngine({ initialNow }: { initialNow: string }) {
                 </p>
               </div>
             ) : (
-              <form onSubmit={handleSubmit} className="mt-4 space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="booking-name">Name</Label>
+              <form noValidate onSubmit={handleSubmit} className="mt-4 space-y-5">
+                <Field id="booking-name" label="Name" required error={bookingFieldErrors.name}>
                   <Input
                     id="booking-name"
                     value={name}
-                    onChange={(event) => setName(event.target.value)}
-                    required
+                    onChange={(event) => {
+                      setName(event.target.value);
+                      setBookingFieldErrors((current) => ({ ...current, name: undefined }));
+                    }}
+                    aria-required="true"
                     className="min-h-12"
                     placeholder="Rahul Sharma"
+                    autoComplete="name"
+                    maxLength={120}
+                    {...fieldA11yProps("booking-name", bookingFieldErrors.name)}
                   />
-                </div>
+                </Field>
 
-                <div className="space-y-2">
-                  <Label htmlFor="booking-phone">Phone</Label>
+                <Field
+                  id="booking-phone"
+                  label="Mobile number"
+                  description="Indian mobile number · 10 digits, optional +91 country code"
+                  required
+                  error={bookingFieldErrors.phone}
+                >
                   <Input
                     id="booking-phone"
                     type="tel"
-                    inputMode="tel"
+                    inputMode="numeric"
+                    autoComplete="tel"
                     value={phone}
-                    onChange={(event) => setPhone(event.target.value)}
-                    required
+                    onChange={(event) => {
+                      setPhone(sanitizeIndianMobileInput(event.target.value));
+                      setBookingFieldErrors((current) => ({ ...current, phone: undefined }));
+                    }}
+                    aria-required="true"
                     className="min-h-12"
                     placeholder="+91 90000 00000"
+                    maxLength={20}
+                    {...fieldA11yProps("booking-phone", bookingFieldErrors.phone, true)}
                   />
-                </div>
+                </Field>
 
                 <Separator />
 

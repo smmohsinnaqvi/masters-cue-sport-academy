@@ -1,3 +1,2 @@
-export const WALKIN_BLOCK_OPTIONS = [60, 90, 120, 180] as const;
 export const WALKIN_EXTEND_INCREMENT_MINUTES = 30;
 export const ONLINE_REQUEST_EXPIRY_MINUTES = 30;

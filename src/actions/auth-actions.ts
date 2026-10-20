@@ -1,12 +1,19 @@
 "use server";
 
 import { createSupabaseAuthServerClient, getAcademySession } from "@/lib/supabase-auth-server";
+import { emailSchema } from "@/lib/form-validation";
 
 export async function loginAction(email: string, password: string) {
-  const normalizedEmail = email.trim().toLowerCase();
-  if (!normalizedEmail || !password) {
-    return { ok: false as const, message: "Enter your email and password." };
+  const validatedEmail = emailSchema.safeParse(email);
+  if (!validatedEmail.success || !password) {
+    return {
+      ok: false as const,
+      message: !validatedEmail.success
+        ? (validatedEmail.error.issues[0]?.message ?? "Enter a valid email address.")
+        : "Enter your password.",
+    };
   }
+  const normalizedEmail = validatedEmail.data.toLowerCase();
 
   const supabase = await createSupabaseAuthServerClient();
   const { data, error } = await supabase.auth.signInWithPassword({

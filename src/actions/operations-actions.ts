@@ -1,22 +1,41 @@
 "use server";
 
-import { PaymentMethod, Prisma } from "@prisma/client";
+import {
+  PaymentMethod,
+  Prisma,
+  SessionGameFormat as PrismaSessionGameFormat,
+} from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import {
   ONLINE_REQUEST_EXPIRY_MINUTES,
-  WALKIN_BLOCK_OPTIONS,
   WALKIN_EXTEND_INCREMENT_MINUTES,
 } from "@/lib/operations-constants";
 import { academyDateKey, academyDateTimeToUtc, academyMinutesOfDay } from "@/lib/academy-time";
 import { reconcileSessionLifecycle } from "@/lib/session-reconciliation";
-import { sessionCharge, sessionDurationMinutes } from "@/lib/session-pricing";
+import {
+  calculateSettlementDiscount,
+  closeoutPayerShares,
+  discountPercentFromBasisPoints,
+  discountPercentToBasisPoints,
+  discountedSessionCharge,
+  sessionCharge,
+  sessionDurationMinutes,
+  sessionPlayerNames,
+  validateSessionPlayers,
+  type SessionGameFormat,
+  type SessionPlayer,
+} from "@/lib/session-pricing";
 import {
   getWalkInAvailableMinutes,
-  getWalkInBlockEnd,
   getWalkInCutoff,
   getWalkInExtensionEnd,
+  getWalkInPlannedEnd,
+  validateWalkInHold,
+  WALKIN_CUSTOM_DURATION_MINUTES,
+  type WalkInHoldMode,
 } from "@/lib/walk-in-blocks";
 import { requireAcademyRole } from "@/lib/supabase-auth-server";
+import { bookingCustomerSchema } from "@/lib/form-validation";
 
 const ACTIVE_STATUSES = ["HELD", "CONFIRMED", "ONGOING"] as const;
 
@@ -67,9 +86,15 @@ export async function createOnlineBookingAction(input: {
   slotStart: Date | string;
   slotEnd: Date | string;
 }) {
-  const customerName = input.customerName.trim();
-  const customerPhone = input.customerPhone.trim();
-  if (!customerName || !customerPhone) throw new Error("Name and phone are required");
+  if (!input || typeof input !== "object") throw new Error("Booking details are required");
+  const customer = bookingCustomerSchema.safeParse({
+    name: input.customerName,
+    phone: input.customerPhone,
+  });
+  if (!customer.success)
+    throw new Error(customer.error.issues[0]?.message ?? "Check booking details");
+  const customerName = customer.data.name;
+  const customerPhone = customer.data.phone;
 
   const startTime = date(input.slotStart);
   const endTime = date(input.slotEnd);
@@ -130,18 +155,25 @@ export async function createOnlineBookingAction(input: {
 
 export async function createWalkInSessionAction(input: {
   tableId: string;
-  customerName: string;
-  customerPhone?: string | null;
+  gameFormat: SessionGameFormat;
+  gameLabel?: string | null;
+  players: SessionPlayer[];
+  holdMode: WalkInHoldMode;
   durationMinutes: number;
 }) {
   await requireAcademyRole("supervisor");
   if (!input || typeof input !== "object") throw new Error("Walk-in details are required");
-  const customerName = requiredName(input.customerName, "Customer name");
   const tableId = requiredName(input.tableId, "Table");
-  const customerPhone = optionalName(input.customerPhone, "Phone number");
-  if (!WALKIN_BLOCK_OPTIONS.some((duration) => duration === input.durationMinutes)) {
-    throw new Error("Choose a valid walk-in block");
+  if (!Object.values(PrismaSessionGameFormat).some((format) => format === input.gameFormat)) {
+    throw new Error("Choose a valid game format");
   }
+  const { players, gameLabel } = validateSessionPlayers(
+    input.gameFormat,
+    input.players,
+    input.gameLabel,
+  );
+  const customerName = players[0]!.name;
+  validateWalkInHold(input.holdMode, input.durationMinutes);
   const now = new Date();
   const table = await prisma.table.findUnique({ where: { id: tableId } });
   if (!table || !table.isActive) throw new Error("Table is not available");
@@ -167,8 +199,6 @@ export async function createWalkInSessionAction(input: {
         });
         if (activeSession) throw new Error("This table is already in use or reserved");
 
-        const closingTime = academyDateTimeToUtc(academyDateKey(now), "23:00");
-        if (now >= closingTime) throw new Error("The academy is closed for walk-ins");
         const nextBooking = await tx.session.findFirst({
           where: {
             tableId,
@@ -180,13 +210,21 @@ export async function createWalkInSessionAction(input: {
           orderBy: { startTime: "asc" },
           select: { startTime: true },
         });
-        const cutoff = getWalkInCutoff(closingTime, nextBooking?.startTime ?? null);
-        if (getWalkInAvailableMinutes(now, cutoff) < WALKIN_BLOCK_OPTIONS[0]) {
-          throw new Error(
-            "There is not enough time for a one-hour walk-in before the next booking or closing",
-          );
+        const cutoff = getWalkInCutoff(nextBooking?.startTime ?? null);
+        const availableMinutes = getWalkInAvailableMinutes(now, cutoff);
+        if (
+          (input.holdMode === "OPEN" && availableMinutes <= 0) ||
+          (input.holdMode !== "OPEN" && availableMinutes < WALKIN_CUSTOM_DURATION_MINUTES)
+        ) {
+          throw new Error("There is not enough time for this hold before the next booking");
         }
-        const plannedEnd = getWalkInBlockEnd(now, input.durationMinutes, cutoff);
+        const plannedEnd = getWalkInPlannedEnd(
+          now,
+          input.durationMinutes,
+          cutoff,
+          input.holdMode === "OPEN",
+        );
+        const plannedDurationMinutes = getWalkInAvailableMinutes(now, plannedEnd);
 
         return tx.session.create({
           data: {
@@ -198,8 +236,14 @@ export async function createWalkInSessionAction(input: {
             actualStart: now,
             rateSnapshot: table.hourlyRate,
             customerName,
-            customerPhone,
-            players: [{ name: customerName }],
+            players,
+            gameFormat: input.gameFormat,
+            gameLabel,
+            walkInOpenEnded: input.holdMode === "OPEN",
+            durationMinutes:
+              input.holdMode === "OPEN"
+                ? null
+                : Math.min(input.durationMinutes, plannedDurationMinutes),
             paymentStatus: "UNPAID",
           },
         });
@@ -217,11 +261,13 @@ export async function extendWalkInSessionAction(sessionId: string) {
   const now = new Date();
   const session = await prisma.session.findFirst({
     where: { id, source: "WALKIN", status: "ONGOING" },
-    select: { tableId: true, plannedEnd: true },
+    select: { tableId: true, plannedEnd: true, walkInOpenEnded: true },
   });
   if (!session) throw new Error("Walk-in session is no longer active");
+  if (session.walkInOpenEnded) {
+    throw new Error("An open walk-in does not need a timed extension");
+  }
 
-  const closingTime = academyDateTimeToUtc(academyDateKey(now), "23:00");
   const nextBooking = await prisma.session.findFirst({
     where: {
       tableId: session.tableId,
@@ -234,7 +280,7 @@ export async function extendWalkInSessionAction(sessionId: string) {
     orderBy: { startTime: "asc" },
     select: { startTime: true },
   });
-  const cutoff = getWalkInCutoff(closingTime, nextBooking?.startTime ?? null);
+  const cutoff = getWalkInCutoff(nextBooking?.startTime ?? null);
   const plannedEnd = getWalkInExtensionEnd(
     now,
     session.plannedEnd,
@@ -242,9 +288,7 @@ export async function extendWalkInSessionAction(sessionId: string) {
     WALKIN_EXTEND_INCREMENT_MINUTES,
   );
   if (!plannedEnd) {
-    throw new Error(
-      "A full 30-minute extension is not available before the next booking or closing",
-    );
+    throw new Error("A full 30-minute extension is not available before the next booking");
   }
 
   try {
@@ -316,32 +360,51 @@ export async function startOnlineBookingAction(sessionId: string) {
 
 export async function updateWalkInSessionAction(input: {
   sessionId: string;
-  customerName: string;
-  playerTwoName?: string | null;
+  gameFormat: SessionGameFormat;
+  gameLabel?: string | null;
+  players: SessionPlayer[];
 }) {
   await requireAcademyRole("supervisor");
   if (!input || typeof input !== "object") throw new Error("Walk-in details are required");
-  const customerName = requiredName(input.customerName, "Customer name");
   const sessionId = requiredName(input.sessionId, "Session");
-  const playerTwoName = optionalName(input.playerTwoName, "Second player name");
+  if (!Object.values(PrismaSessionGameFormat).some((format) => format === input.gameFormat)) {
+    throw new Error("Choose a valid game format");
+  }
+  const { players, gameLabel } = validateSessionPlayers(
+    input.gameFormat,
+    input.players,
+    input.gameLabel,
+  );
+  const customerName = players[0]!.name;
   return prisma.session.update({
     where: { id: sessionId, source: "WALKIN", status: "ONGOING" },
     data: {
       customerName,
-      players: [{ name: customerName }, ...(playerTwoName ? [{ name: playerTwoName }] : [])],
+      players,
+      gameFormat: input.gameFormat,
+      gameLabel,
     },
   });
 }
 
 export async function closeSessionAction(input: {
   sessionId: string;
-  payerName: string;
+  payerNames: string[];
+  discountPercent: number | string;
   paymentMethod: "CASH" | "UPI" | "CARD" | null;
 }) {
   await requireAcademyRole("supervisor");
   if (!input || typeof input !== "object") throw new Error("Closeout details are required");
-  const payerName = requiredName(input.payerName, "Payer name");
   const sessionId = requiredName(input.sessionId, "Session");
+  const discountPercentBasisPoints = discountPercentToBasisPoints(input.discountPercent);
+  const discountPercent = discountPercentFromBasisPoints(discountPercentBasisPoints);
+  if (!Array.isArray(input.payerNames)) throw new Error("Payer details are required");
+  const payerNames = input.payerNames.map((name, index) =>
+    requiredName(name, `Payer ${index + 1}`),
+  );
+  if (new Set(payerNames.map((name) => name.toLocaleLowerCase())).size !== payerNames.length) {
+    throw new Error("A player can only be selected as a payer once");
+  }
   if (input.paymentMethod !== null && !isPaymentMethod(input.paymentMethod)) {
     throw new Error("Choose a valid payment method or add the amount to unpaid dues");
   }
@@ -358,8 +421,16 @@ export async function closeSessionAction(input: {
     const actualStart = session.actualStart ?? session.startTime;
     const durationMinutes = sessionDurationMinutes(actualStart, actualEnd);
     const rateSnapshot = session.rateSnapshot ?? session.table.hourlyRate;
-    const amount = sessionCharge(rateSnapshot, durationMinutes);
-    const isPaid = input.paymentMethod !== null;
+    const grossAmount = sessionCharge(rateSnapshot, durationMinutes);
+    const amount = discountedSessionCharge(grossAmount, discountPercent);
+    const availablePayers = sessionPlayerNames(session.players, session.customerName ?? "Guest");
+    if (payerNames.some((name) => !availablePayers.includes(name))) {
+      throw new Error("Select payers from the players recorded for this session");
+    }
+    const payerShares = closeoutPayerShares(amount, payerNames);
+    const payerName = payerNames.join(", ");
+    const paymentMethod = amount === 0 ? null : input.paymentMethod;
+    const isPaid = paymentMethod !== null || amount === 0;
     const result = await tx.session.updateMany({
       where: { id: session.id, status: "ONGOING" },
       data: {
@@ -368,10 +439,14 @@ export async function closeSessionAction(input: {
         plannedEnd: actualEnd,
         durationMinutes,
         amount,
+        grossAmount,
+        discountPercentBasisPoints,
+        discountAmount: grossAmount - amount,
+        payerShares,
         rateSnapshot,
         payerName,
         paymentStatus: isPaid ? "PAID" : "UNPAID",
-        paymentMethod: input.paymentMethod,
+        paymentMethod,
         paidAt: isPaid ? actualEnd : null,
       },
     });
@@ -384,30 +459,59 @@ export async function settleSessionPaymentAction(input: {
   sessionId: string;
   payerName: string;
   paymentMethod: "CASH" | "UPI" | "CARD";
+  discountPercent: string | number;
 }) {
   await requireAcademyRole("supervisor");
   if (!input || typeof input !== "object") throw new Error("Payment details are required");
   const payerName = requiredName(input.payerName, "Payer name");
   const sessionId = requiredName(input.sessionId, "Session");
   if (!isPaymentMethod(input.paymentMethod)) throw new Error("Choose a valid payment method");
+  const settlementDiscountPercentBasisPoints = discountPercentToBasisPoints(input.discountPercent);
   const paidAt = new Date();
-  const result = await prisma.session.updateMany({
-    where: {
-      id: sessionId,
-      source: { in: ["ONLINE", "WALKIN"] },
-      status: "COMPLETED",
-      paymentStatus: "UNPAID",
-      amount: { not: null },
-    },
-    data: {
-      paymentStatus: "PAID",
-      paymentMethod: input.paymentMethod,
-      payerName,
-      paidAt,
-    },
+  return prisma.$transaction(async (tx) => {
+    const session = await tx.session.findFirst({
+      where: {
+        id: sessionId,
+        source: { in: ["ONLINE", "WALKIN"] },
+        status: "COMPLETED",
+        paymentStatus: "UNPAID",
+        amount: { not: null },
+      },
+      select: {
+        id: true,
+        amount: true,
+        discountPercentBasisPoints: true,
+      },
+    });
+    if (!session || session.amount === null) {
+      throw new Error("This unpaid session cannot accept payment");
+    }
+    const settlementDiscount = calculateSettlementDiscount(
+      session.amount,
+      discountPercentFromBasisPoints(settlementDiscountPercentBasisPoints),
+      session.discountPercentBasisPoints,
+    );
+    const result = await tx.session.updateMany({
+      where: {
+        id: session.id,
+        status: "COMPLETED",
+        paymentStatus: "UNPAID",
+        amount: session.amount,
+        discountPercentBasisPoints: session.discountPercentBasisPoints,
+      },
+      data: {
+        amount: settlementDiscount.amount,
+        settlementDiscountPercentBasisPoints: settlementDiscount.discountBasisPoints,
+        settlementDiscountAmount: settlementDiscount.discountAmount,
+        paymentStatus: "PAID",
+        paymentMethod: input.paymentMethod,
+        payerName,
+        paidAt,
+      },
+    });
+    if (result.count !== 1) throw new Error("This unpaid session changed before payment completed");
+    return tx.session.findUniqueOrThrow({ where: { id: session.id } });
   });
-  if (result.count !== 1) throw new Error("This unpaid session cannot accept payment");
-  return prisma.session.findUniqueOrThrow({ where: { id: sessionId } });
 }
 
 export async function cancelSessionAction(sessionId: string) {
@@ -430,7 +534,7 @@ export async function getOperationsSnapshotAction() {
   await requireAcademyRole("supervisor");
   const now = new Date();
   await reconcileSessionLifecycle(now);
-  return prisma.table.findMany({
+  const tables = await prisma.table.findMany({
     where: { isActive: true },
     orderBy: { name: "asc" },
     select: {
@@ -459,13 +563,22 @@ export async function getOperationsSnapshotAction() {
           status: true,
           startTime: true,
           plannedEnd: true,
+          walkInOpenEnded: true,
           actualStart: true,
           customerName: true,
           customerPhone: true,
           players: true,
+          gameFormat: true,
+          gameLabel: true,
           rateSnapshot: true,
           durationMinutes: true,
           amount: true,
+          grossAmount: true,
+          discountPercentBasisPoints: true,
+          discountAmount: true,
+          settlementDiscountPercentBasisPoints: true,
+          settlementDiscountAmount: true,
+          payerShares: true,
           paymentStatus: true,
           paymentMethod: true,
           payerName: true,
@@ -475,6 +588,18 @@ export async function getOperationsSnapshotAction() {
       },
     },
   });
+  return tables.map(({ sessions, ...table }) => ({
+    ...table,
+    sessions: sessions.map(
+      ({ discountPercentBasisPoints, settlementDiscountPercentBasisPoints, ...session }) => ({
+        ...session,
+        discountPercent: discountPercentFromBasisPoints(discountPercentBasisPoints),
+        settlementDiscountPercent: discountPercentFromBasisPoints(
+          settlementDiscountPercentBasisPoints,
+        ),
+      }),
+    ),
+  }));
 }
 
 export async function getOperationsSummaryAction() {

@@ -2,16 +2,24 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  Banknote,
   CalendarClock,
   Check,
   ChevronDown,
   ChevronUp,
   Clock3,
+  CreditCard,
+  LockKeyhole,
   PencilLine,
   Play,
   Plus,
+  ReceiptText,
+  Smartphone,
   Square,
   Table2,
+  Target,
+  UserRound,
+  UsersRound,
   Trash2,
   X,
   type LucideIcon,
@@ -59,17 +67,40 @@ import type { Table } from "@/types/operations";
 import { supabase } from "@/lib/supabase";
 import { useSessionPages, type SessionPageRow } from "@/hooks/useSessionPages";
 import { cn } from "@/lib/utils";
-import { sessionCharge, sessionDurationMinutes } from "@/lib/session-pricing";
-import { WALKIN_BLOCK_OPTIONS, WALKIN_EXTEND_INCREMENT_MINUTES } from "@/lib/operations-constants";
-import { academyDateKey, academyDateTimeToUtc } from "@/lib/academy-time";
+import { Field } from "@/components/ui/field";
+import { fieldA11yProps } from "@/components/ui/field-utils";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
+  discountPercentFromBasisPoints,
+  discountPercentToBasisPoints,
+  discountedSessionCharge,
+  playerNamesForTeam,
+  sessionCharge,
+  sessionDurationMinutes,
+  sessionPlayerNames,
+  splitSessionCharge,
+  type PayerShare,
+  type SessionGameFormat,
+  type SessionPlayer,
+} from "@/lib/session-pricing";
+import { WALKIN_EXTEND_INCREMENT_MINUTES } from "@/lib/operations-constants";
+import {
+  WALKIN_CUSTOM_DURATION_MAX_MINUTES,
+  WALKIN_CUSTOM_DURATION_MINUTES,
+  WALKIN_CUSTOM_DURATION_STEP_MINUTES,
   getWalkInAvailableMinutes,
-  getWalkInBlockEnd,
   getWalkInCutoff,
   getWalkInExtensionEnd,
+  getWalkInPlannedEnd,
+  OPEN_WALKIN_PLANNED_END,
+  validateWalkInHold,
+  type WalkInHoldMode,
 } from "@/lib/walk-in-blocks";
 
 type EntryStatus = "live" | "booked" | "completed" | "cancelled" | "no-show" | "expired";
+type TableFilter = "ALL" | "ACTIVE" | "SNOOKER" | "POOL";
+type LedgerPaymentFilter = "ALL" | "PAID" | "UNPAID";
+type LedgerTableFilter = "ALL" | "SNOOKER" | "POOL";
 type Entry = {
   id: string;
   sessionId?: string;
@@ -89,6 +120,15 @@ type Entry = {
   paymentMethod: string;
   durationMinutes: number | null;
   source: "ONLINE" | "WALKIN" | "MAINTENANCE";
+  players: SessionPlayer[];
+  gameFormat: SessionGameFormat | null;
+  gameLabel: string | null;
+  grossAmount: number | null;
+  discountPercent: number;
+  discountAmount: number;
+  settlementDiscountPercent: number;
+  settlementDiscountAmount: number;
+  payerShares: PayerShare[];
 };
 type Booking = {
   id: string;
@@ -105,13 +145,106 @@ type Booking = {
 type Snapshot = Awaited<ReturnType<typeof getOperationsSnapshotAction>>;
 type OperationsSummary = Awaited<ReturnType<typeof getOperationsSummaryAction>>;
 
-const emptyForm = {
-  tableId: "",
-  playerOne: "",
-  playerTwo: "",
-  customerPhone: "",
-  durationMinutes: 120,
+type WalkInForm = {
+  tableId: string;
+  gameFormat: SessionGameFormat;
+  gameLabel: string;
+  players: SessionPlayer[];
+  holdMode: WalkInHoldMode;
+  durationMinutes: number;
 };
+
+const emptyForm: Omit<WalkInForm, "tableId"> = {
+  gameFormat: "SINGLES",
+  gameLabel: "",
+  players: [{ name: "" }, { name: "" }],
+  holdMode: "TIMED",
+  durationMinutes: 60,
+};
+
+function emptyWalkInForm(tableId = ""): WalkInForm {
+  return { ...emptyForm, tableId, players: emptyForm.players.map((player) => ({ ...player })) };
+}
+
+function playersForFormat(format: SessionGameFormat, current: SessionPlayer[]) {
+  const count =
+    format === "SINGLES"
+      ? 2
+      : format === "DOUBLES"
+        ? 4
+        : format === "SOLO"
+          ? 1
+          : Math.max(3, current.length);
+  return Array.from({ length: count }, (_, index) => ({
+    name: current[index]?.name ?? "",
+    ...(format === "DOUBLES" ? { team: index < 2 ? ("A" as const) : ("B" as const) } : {}),
+  }));
+}
+
+function walkInPresetsForFormat(format: SessionGameFormat) {
+  return format === "SOLO" ? [30, 60, 90] : [60, 90, 120];
+}
+
+function walkInPlayersValid(form: WalkInForm) {
+  const expected =
+    form.gameFormat === "SINGLES"
+      ? 2
+      : form.gameFormat === "DOUBLES"
+        ? 4
+        : form.gameFormat === "SOLO"
+          ? 1
+          : null;
+  if (expected !== null && form.players.length !== expected) return false;
+  if (form.gameFormat === "GROUP" && (form.players.length < 3 || form.players.length > 6)) {
+    return false;
+  }
+  const names = form.players.map((player) => player.name.trim().toLocaleLowerCase());
+  if (names.some((name) => !name) || new Set(names).size !== names.length) return false;
+  return (
+    form.gameFormat !== "DOUBLES" ||
+    (form.players.filter((player) => player.team === "A").length === 2 &&
+      form.players.filter((player) => player.team === "B").length === 2)
+  );
+}
+
+function WalkInPlayerField({
+  index,
+  name,
+  error,
+  onNameChange,
+}: {
+  index: number;
+  name: string;
+  error?: string;
+  onNameChange: (value: string) => void;
+}) {
+  const id = `walkin-player-${index}`;
+  return (
+    <div className="flex items-start gap-2">
+      <span className="mt-1 flex h-10 w-9 shrink-0 items-center justify-center rounded-lg bg-felt/10 text-[11px] font-bold text-felt">
+        P{index + 1}
+      </span>
+      <div className="min-w-0 flex-1 space-y-1">
+        <Input
+          id={id}
+          autoComplete="off"
+          maxLength={120}
+          value={name}
+          aria-label={`Player ${index + 1} name`}
+          aria-invalid={Boolean(error)}
+          aria-describedby={error ? `${id}-error` : undefined}
+          placeholder={`Player ${index + 1} name`}
+          onChange={(event) => onNameChange(event.target.value)}
+        />
+        {error ? (
+          <p id={`${id}-error`} role="alert" className="px-1 text-xs font-medium text-destructive">
+            {error}
+          </p>
+        ) : null}
+      </div>
+    </div>
+  );
+}
 
 function time(value: Date | string | null) {
   if (!value) return "";
@@ -147,7 +280,78 @@ function playerName(players: unknown, index: number, fallback: string) {
   return String(player.name);
 }
 
+function gameFormatDescription(format: SessionGameFormat | null) {
+  switch (format) {
+    case "SINGLES":
+      return "Singles · 1 vs 1";
+    case "DOUBLES":
+      return "Doubles · 2 vs 2";
+    case "GROUP":
+      return "Group game";
+    case "SOLO":
+      return "Solo practice";
+    default:
+      return "";
+  }
+}
+
+function DiscountToggle({
+  id,
+  checked,
+  onCheckedChange,
+  label,
+}: {
+  id: string;
+  checked: boolean;
+  onCheckedChange: (checked: boolean) => void;
+  label: string;
+}) {
+  return (
+    <div className="flex min-h-11 items-center gap-3 rounded-xl text-left">
+      <Checkbox
+        id={id}
+        checked={checked}
+        onCheckedChange={(value) => onCheckedChange(value === true)}
+        aria-label={label}
+        className="h-5 w-5 rounded-md border-border bg-background text-primary shadow-none focus-visible:ring-2 focus-visible:ring-felt focus-visible:ring-offset-2 data-[state=checked]:border-felt data-[state=checked]:bg-felt data-[state=checked]:text-primary-foreground"
+      />
+      <span className="min-w-0">
+        <span className="block text-sm font-semibold leading-tight">{label}</span>
+        <span className="mt-0.5 block text-[11px] text-muted-foreground">Optional</span>
+      </span>
+    </div>
+  );
+}
+
+function sessionPlayers(value: unknown, fallbackName?: string | null): SessionPlayer[] {
+  if (Array.isArray(value)) {
+    return value.flatMap((player) => {
+      if (!player || typeof player !== "object" || !("name" in player)) return [];
+      const name = player.name;
+      if (typeof name !== "string" || !name.trim()) return [];
+      const team =
+        "team" in player && (player.team === "A" || player.team === "B") ? player.team : undefined;
+      return [{ name: name.trim(), ...(team ? { team } : {}) }];
+    });
+  }
+  return fallbackName?.trim() ? [{ name: fallbackName.trim() }] : [];
+}
+
+function payerSharesFromUnknown(value: unknown): PayerShare[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((share) => {
+    if (!share || typeof share !== "object" || !("name" in share) || !("amount" in share)) {
+      return [];
+    }
+    const { name, amount } = share;
+    return typeof name === "string" && Number.isSafeInteger(amount) && amount >= 0
+      ? [{ name, amount }]
+      : [];
+  });
+}
+
 function entryFromPage(session: SessionPageRow): Entry {
+  const participants = sessionPlayers(session.players, session.customerName);
   return {
     id: session.id,
     sessionId: session.id,
@@ -182,14 +386,9 @@ function entryFromPage(session: SessionPageRow): Entry {
                   : session.status === "NO_SHOW"
                     ? "No-show"
                     : "Expired",
-    playerOne:
-      session.source === "WALKIN"
-        ? playerName(session.players, 0, "Walk-in")
-        : (session.customerName ?? "Guest"),
+    playerOne: participants[0]?.name ?? "Guest",
     playerTwo:
-      session.source === "WALKIN"
-        ? playerName(session.players, 1, "Opponent")
-        : (session.customerPhone ?? ""),
+      session.source === "WALKIN" ? (participants[1]?.name ?? "") : (session.customerPhone ?? ""),
     customerPhone: session.customerPhone ?? "",
     startTime: time(session.actualStart ?? session.startTime),
     endTime: time(session.actualEnd ?? session.plannedEnd),
@@ -199,6 +398,15 @@ function entryFromPage(session: SessionPageRow): Entry {
     amount: session.amount ?? 0,
     durationMinutes: session.durationMinutes,
     source: session.source,
+    players: participants,
+    gameFormat: session.gameFormat,
+    gameLabel: session.gameLabel,
+    grossAmount: session.grossAmount,
+    discountPercent: session.discountPercent,
+    discountAmount: session.discountAmount,
+    settlementDiscountPercent: session.settlementDiscountPercent,
+    settlementDiscountAmount: session.settlementDiscountAmount,
+    payerShares: payerSharesFromUnknown(session.payerShares),
   };
 }
 
@@ -229,24 +437,44 @@ export default function SupervisorPage() {
   const [activeHistory, setActiveHistory] = useState<"tables" | "unpaid" | "ledger" | "bookings">(
     "tables",
   );
+  const [tableFilter, setTableFilter] = useState<TableFilter>("ALL");
   const [expandedBookings, setExpandedBookings] = useState<Record<string, boolean>>({});
   const [currentTime, setCurrentTime] = useState(() => Date.now());
   const [ledgerSearch, setLedgerSearch] = useState("");
-  const ledgerPage = useSessionPages("ledger", refreshKey, { search: ledgerSearch });
+  const [ledgerPaymentFilter, setLedgerPaymentFilter] = useState<LedgerPaymentFilter>("ALL");
+  const [ledgerTableFilter, setLedgerTableFilter] = useState<LedgerTableFilter>("ALL");
+  const ledgerPage = useSessionPages("ledger", refreshKey, {
+    search: ledgerSearch,
+    paymentStatus: ledgerPaymentFilter,
+    tableType: ledgerTableFilter,
+  });
   const bookingsPage = useSessionPages("bookings", refreshKey);
   const duesPage = useSessionPages("dues", refreshKey);
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Entry | null>(null);
-  const [form, setForm] = useState(emptyForm);
+  const [form, setForm] = useState<WalkInForm>(() => emptyWalkInForm());
+  const [customDurationText, setCustomDurationText] = useState("60");
+  const [walkInValidation, setWalkInValidation] = useState<{
+    players: Record<number, string>;
+    message: string | null;
+  }>({ players: {}, message: null });
   const [endSession, setEndSession] = useState<{
     sessionId: string;
-    payerName: string;
+    playerNames: string[];
+    players: SessionPlayer[];
+    gameFormat: SessionGameFormat | null;
+    payerNames: string[];
+    payerTeam: "A" | "B" | null;
+    applyDiscount: boolean;
+    discountPercent: string;
     paymentMethod: "CASH" | "UPI" | "CARD" | null;
   } | null>(null);
   const [paymentEntry, setPaymentEntry] = useState<{
     sessionId: string;
     payerName: string;
     paymentMethod: "CASH" | "UPI" | "CARD";
+    applyDiscount: boolean;
+    discountPercent: string;
   } | null>(null);
   const [confirm, setConfirm] = useState<{
     title: string;
@@ -270,6 +498,15 @@ export default function SupervisorPage() {
     setSummary(nextSummary);
     setRefreshKey((value) => value + 1);
   }, []);
+
+  async function refreshAfterMutation() {
+    try {
+      await refresh();
+    } catch (reason) {
+      const details = reason instanceof Error ? ` ${reason.message}` : "";
+      setError(`The change was saved, but supervisor data could not refresh.${details}`);
+    }
+  }
 
   useEffect(() => {
     void refresh()
@@ -298,11 +535,26 @@ export default function SupervisorPage() {
   }, [refresh]);
 
   const tables = useMemo(() => snapshot, [snapshot]);
+  const activeTableCount = tables.filter((table) =>
+    table.sessions.some(
+      (session) => session.status === "ONGOING" && session.source !== "MAINTENANCE",
+    ),
+  ).length;
+  const filteredTables = tables.filter((table) => {
+    if (tableFilter === "ACTIVE") {
+      return table.sessions.some(
+        (session) => session.status === "ONGOING" && session.source !== "MAINTENANCE",
+      );
+    }
+    return tableFilter === "ALL" || table.type === tableFilter;
+  });
   const entries = ledgerPage.items.map(entryFromPage);
   const bookings = bookingsPage.items.map(bookingFromPage);
   const dues = duesPage.items.map(entryFromPage);
   const activeSessions = tables.flatMap((table) => table.sessions);
-  const liveCount = activeSessions.filter((session) => session.status === "ONGOING").length;
+  const liveCount = activeSessions.filter(
+    (session) => session.status === "ONGOING" && session.source !== "MAINTENANCE",
+  ).length;
   const closingSession = endSession
     ? activeSessions.find((session) => session.id === endSession.sessionId)
     : null;
@@ -310,19 +562,38 @@ export default function SupervisorPage() {
     ? tables.find((table) => table.id === closingSession.tableId)
     : null;
   const closingStartedAt = closingSession?.actualStart ?? closingSession?.startTime;
-  const closingPlayerName = closingSession
-    ? closingSession.source === "WALKIN"
-      ? playerName(closingSession.players, 0, "Walk-in")
-      : (closingSession.customerName ?? "Online booking")
-    : "";
   const closingMinutes = closingStartedAt
     ? sessionDurationMinutes(closingStartedAt, new Date(currentTime))
     : 0;
   const closingRate = closingSession?.rateSnapshot ?? closingTable?.hourlyRate ?? 0;
-  const closingAmount = sessionCharge(closingRate, closingMinutes);
+  const closingGrossAmount = sessionCharge(closingRate, closingMinutes);
+  const closingDiscountBasisPoints = endSession
+    ? (() => {
+        if (!endSession.applyDiscount) return 0;
+        try {
+          return discountPercentToBasisPoints(endSession.discountPercent);
+        } catch {
+          return null;
+        }
+      })()
+    : 0;
+  const closingDiscountError =
+    endSession && closingDiscountBasisPoints === null
+      ? "Enter a discount from 0 to 100 with up to 2 decimal places."
+      : undefined;
+  const closingAmount =
+    closingDiscountBasisPoints === null
+      ? closingGrossAmount
+      : discountedSessionCharge(
+          closingGrossAmount,
+          discountPercentFromBasisPoints(closingDiscountBasisPoints),
+        );
+  const closingDiscountAmount = closingGrossAmount - closingAmount;
+  const closingPayerShares = endSession?.payerNames.length
+    ? splitSessionCharge(closingAmount, endSession.payerNames)
+    : [];
   const walkInTable = tables.find((table) => table.id === form.tableId);
   const walkInNow = new Date(currentTime);
-  const walkInClosingTime = academyDateTimeToUtc(academyDateKey(walkInNow), "23:00");
   const walkInNextBooking = walkInTable?.sessions
     .filter(
       (session) =>
@@ -331,19 +602,75 @@ export default function SupervisorPage() {
         session.startTime.getTime() > currentTime,
     )
     .sort((a, b) => a.startTime.getTime() - b.startTime.getTime())[0];
-  const walkInCutoff = getWalkInCutoff(walkInClosingTime, walkInNextBooking?.startTime ?? null);
-  const walkInPlannedEnd = getWalkInBlockEnd(walkInNow, form.durationMinutes, walkInCutoff);
+  const walkInCutoff = getWalkInCutoff(walkInNextBooking?.startTime ?? null);
+  const walkInPlannedEnd = getWalkInPlannedEnd(
+    walkInNow,
+    form.durationMinutes,
+    walkInCutoff,
+    form.holdMode === "OPEN",
+  );
   const walkInAvailableMinutes = getWalkInAvailableMinutes(walkInNow, walkInCutoff);
-  const walkInActualMinutes = getWalkInAvailableMinutes(walkInNow, walkInPlannedEnd);
+  const walkInEstimateMinutes =
+    form.holdMode === "OPEN"
+      ? walkInCutoff
+        ? walkInAvailableMinutes
+        : 0
+      : getWalkInAvailableMinutes(walkInNow, walkInPlannedEnd);
+  const walkInDurationPresets = walkInPresetsForFormat(form.gameFormat);
+  const walkInCanStart =
+    form.holdMode === "OPEN"
+      ? walkInAvailableMinutes > 0
+      : walkInAvailableMinutes >= WALKIN_CUSTOM_DURATION_MINUTES;
+  const walkInHoldError =
+    form.holdMode === "CUSTOM"
+      ? Number.isInteger(form.durationMinutes) &&
+        form.durationMinutes >= WALKIN_CUSTOM_DURATION_MINUTES &&
+        form.durationMinutes <= WALKIN_CUSTOM_DURATION_MAX_MINUTES &&
+        form.durationMinutes % WALKIN_CUSTOM_DURATION_STEP_MINUTES === 0
+        ? undefined
+        : "Enter a duration from 30 minutes to 24 hours in 30-minute steps."
+      : undefined;
   const paymentEntryDetails = paymentEntry
     ? (dues.find((entry) => entry.id === paymentEntry.sessionId) ??
       entries.find((entry) => entry.id === paymentEntry.sessionId) ??
       bookings.find((booking) => booking.id === paymentEntry.sessionId))
     : null;
+  const paymentEntryCloseoutDiscount =
+    paymentEntryDetails && "discountPercent" in paymentEntryDetails
+      ? paymentEntryDetails.discountPercent
+      : 0;
+  const existingCloseoutDiscount = paymentEntryCloseoutDiscount > 0;
+  const settlementDiscountAllowed = !existingCloseoutDiscount;
+  const settlementDiscountBasisPoints = paymentEntry
+    ? (() => {
+        if (!paymentEntry.applyDiscount) return 0;
+        try {
+          return discountPercentToBasisPoints(paymentEntry.discountPercent);
+        } catch {
+          return null;
+        }
+      })()
+    : 0;
+  const settlementDiscountError =
+    paymentEntry && settlementDiscountBasisPoints === null
+      ? "Enter a discount from 0 to 100 with up to 2 decimal places."
+      : undefined;
+  const settlementGrossAmount = paymentEntryDetails?.amount ?? 0;
+  const settlementNetAmount =
+    settlementDiscountBasisPoints === null
+      ? settlementGrossAmount
+      : discountedSessionCharge(
+          settlementGrossAmount,
+          discountPercentFromBasisPoints(settlementDiscountBasisPoints),
+        );
+  const settlementDiscountAmount = settlementGrossAmount - settlementNetAmount;
 
   function openCreate(tableId: string) {
     setEditing(null);
-    setForm({ ...emptyForm, tableId, durationMinutes: 120 });
+    setForm(emptyWalkInForm(tableId));
+    setCustomDurationText("60");
+    setWalkInValidation({ players: {}, message: null });
+    setError(null);
     setShowForm(true);
   }
 
@@ -351,35 +678,81 @@ export default function SupervisorPage() {
     setEditing(entry);
     setForm({
       tableId: entry.tableId,
-      playerOne: entry.playerOne,
-      playerTwo: entry.playerTwo,
-      customerPhone: entry.customerPhone,
-      durationMinutes: 120,
+      gameFormat: entry.gameFormat ?? "SINGLES",
+      gameLabel: entry.gameLabel ?? "",
+      players: playersForFormat(entry.gameFormat ?? "SINGLES", entry.players),
+      holdMode: "TIMED",
+      durationMinutes: 60,
     });
+    setCustomDurationText("60");
+    setWalkInValidation({ players: {}, message: null });
+    setError(null);
     setShowForm(true);
   }
 
   async function saveForm() {
     if (isSavingWalkIn) return;
+    if (!editing) {
+      try {
+        validateWalkInHold(form.holdMode, form.durationMinutes);
+      } catch (reason) {
+        setError(reason instanceof Error ? reason.message : "Choose a valid hold duration.");
+        return;
+      }
+      if (!walkInCanStart) {
+        setError(
+          form.holdMode === "OPEN"
+            ? "The next booking is starting now; this table cannot be held."
+            : "There is not enough time for this hold before the next booking.",
+        );
+        return;
+      }
+    }
+    if (!editing && !walkInPlayersValid(form)) {
+      const names = form.players.map((player) => player.name.trim().toLocaleLowerCase());
+      const players: Record<number, string> = {};
+      names.forEach((name, index) => {
+        if (!name) players[index] = "Enter a player name.";
+        else if (names.indexOf(name) !== index) players[index] = "Player names must be different.";
+      });
+      setWalkInValidation({
+        players,
+        message:
+          Object.keys(players).length > 0
+            ? "Check the player names below."
+            : form.gameFormat === "DOUBLES"
+              ? "Assign exactly two players to each team."
+              : form.gameFormat === "GROUP"
+                ? "A group game needs 3 to 6 different players."
+                : form.gameFormat === "SOLO"
+                  ? "Enter the solo practice player's name."
+                  : "Enter two different player names.",
+      });
+      return;
+    }
+    setWalkInValidation({ players: {}, message: null });
     setIsSavingWalkIn(true);
     try {
       if (editing?.sessionId) {
         await updateWalkInSessionAction({
           sessionId: editing.sessionId,
-          customerName: form.playerOne,
-          playerTwoName: form.playerTwo,
+          gameFormat: form.gameFormat,
+          gameLabel: form.gameLabel,
+          players: form.players,
         });
       } else {
         await createWalkInSessionAction({
           tableId: form.tableId,
-          customerName: form.playerOne,
-          customerPhone: form.customerPhone,
+          gameFormat: form.gameFormat,
+          gameLabel: form.gameLabel,
+          players: form.players,
+          holdMode: form.holdMode,
           durationMinutes: form.durationMinutes,
         });
       }
       setShowForm(false);
       setError(null);
-      await refresh();
+      await refreshAfterMutation();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Unable to save session");
     } finally {
@@ -391,13 +764,62 @@ export default function SupervisorPage() {
     setConfirm({ title, description, action });
   }
 
+  function openCloseout(
+    session: Pick<
+      Snapshot[number]["sessions"][number],
+      "id" | "players" | "customerName" | "gameFormat"
+    >,
+  ) {
+    const playerNames = sessionPlayerNames(session.players, session.customerName ?? "Guest");
+    const players = sessionPlayers(session.players, session.customerName);
+    const gameFormat = session.gameFormat ?? null;
+    setEndSession({
+      sessionId: session.id,
+      playerNames,
+      players,
+      gameFormat,
+      payerNames: gameFormat === "DOUBLES" ? [] : playerNames.slice(0, 1),
+      payerTeam: null,
+      applyDiscount: false,
+      discountPercent: "0",
+      paymentMethod: null,
+    });
+  }
+
+  function openEntryCloseout(entry: Entry) {
+    const playerNames = sessionPlayerNames(entry.players, entry.playerOne);
+    setEndSession({
+      sessionId: entry.sessionId!,
+      playerNames,
+      players: entry.players,
+      gameFormat: entry.gameFormat,
+      payerNames: entry.gameFormat === "DOUBLES" ? [] : playerNames.slice(0, 1),
+      payerTeam: null,
+      applyDiscount: false,
+      discountPercent: "0",
+      paymentMethod: null,
+    });
+  }
+
+  function selectPayerTeam(team: "A" | "B") {
+    setEndSession((current) =>
+      current
+        ? {
+            ...current,
+            payerTeam: team,
+            payerNames: playerNamesForTeam(current.players, team),
+          }
+        : current,
+    );
+  }
+
   async function runConfirmed() {
     if (!confirm || isConfirming) return;
     setIsConfirming(true);
+    setError(null);
     try {
       await confirm.action();
       setConfirm(null);
-      setError(null);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Operation failed");
       setConfirm(null);
@@ -410,10 +832,15 @@ export default function SupervisorPage() {
     if (!endSession || isEndingSession) return;
     setIsEndingSession(true);
     try {
-      await closeSessionAction(endSession);
+      await closeSessionAction({
+        sessionId: endSession.sessionId,
+        payerNames: endSession.payerNames,
+        discountPercent: endSession.applyDiscount ? endSession.discountPercent : "0",
+        paymentMethod: endSession.paymentMethod,
+      });
       setEndSession(null);
       setError(null);
-      await refresh();
+      await refreshAfterMutation();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Unable to close session");
     } finally {
@@ -427,7 +854,7 @@ export default function SupervisorPage() {
     try {
       await extendWalkInSessionAction(sessionId);
       setError(null);
-      await refresh();
+      await refreshAfterMutation();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Unable to extend the table block");
     } finally {
@@ -441,7 +868,7 @@ export default function SupervisorPage() {
     try {
       await startOnlineBookingAction(bookingId);
       setError(null);
-      await refresh();
+      await refreshAfterMutation();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Unable to start this booking");
     } finally {
@@ -453,15 +880,42 @@ export default function SupervisorPage() {
     if (!paymentEntry || isRecordingPayment) return;
     setIsRecordingPayment(true);
     try {
-      await settleSessionPaymentAction(paymentEntry);
+      await settleSessionPaymentAction({
+        ...paymentEntry,
+        discountPercent: paymentEntry.applyDiscount ? paymentEntry.discountPercent : "0",
+      });
       setPaymentEntry(null);
       setError(null);
-      await refresh();
+      await refreshAfterMutation();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Unable to record payment");
     } finally {
       setIsRecordingPayment(false);
     }
+  }
+
+  function changePlayerName(index: number, name: string) {
+    setForm((current) => ({
+      ...current,
+      players: current.players.map((player, playerIndex) =>
+        playerIndex === index ? { ...player, name } : player,
+      ),
+    }));
+    setWalkInValidation({ players: {}, message: null });
+  }
+
+  function playerField(index: number) {
+    const player = form.players[index];
+    if (!player) return null;
+    return (
+      <WalkInPlayerField
+        key={`walkin-player-${index}`}
+        index={index}
+        name={player.name}
+        error={walkInValidation.players[index]}
+        onNameChange={(name) => changePlayerName(index, name)}
+      />
+    );
   }
 
   return (
@@ -518,100 +972,413 @@ export default function SupervisorPage() {
               if (!open && !isSavingWalkIn) setShowForm(false);
             }}
           >
-            <DialogContent className="max-h-[90dvh] w-[calc(100%-1.25rem)] max-w-md overflow-y-auto rounded-2xl p-5 sm:p-6">
-              <DialogHeader className="pr-7">
-                <DialogTitle>
-                  {editing ? "Update players" : `Start walk-in on ${walkInTable?.name ?? "table"}`}
-                </DialogTitle>
+            <DialogContent className="max-h-[92dvh] w-[calc(100%-1rem)] max-w-md overflow-y-auto rounded-3xl border-border/80 bg-background p-4 shadow-2xl sm:p-5">
+              <DialogHeader className="space-y-3 pr-7 text-left">
+                {!editing && walkInTable ? (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge className="gap-1.5 rounded-full border border-felt/30 bg-felt/10 text-felt">
+                      <span className="h-1.5 w-1.5 rounded-full bg-felt" />
+                      {walkInTable.name}
+                    </Badge>
+                    <Badge variant="outline" className="rounded-full text-muted-foreground">
+                      {walkInTable.type === "SNOOKER" ? "Snooker" : "Pool"}
+                    </Badge>
+                    <Badge variant="outline" className="rounded-full text-muted-foreground">
+                      {money(walkInTable.hourlyRate)}/hr
+                    </Badge>
+                  </div>
+                ) : null}
+                <DialogTitle>{editing ? "Update players" : "Start walk-in"}</DialogTitle>
                 <DialogDescription>
                   {editing
                     ? "Update the names on this active table."
-                    : `Held at ${money(walkInTable?.hourlyRate ?? 0)}/hr. Play is billed by actual minutes.`}
+                    : "Choose a game format and hold duration. Billing is based on actual minutes played."}
                 </DialogDescription>
               </DialogHeader>
               <form
+                noValidate
                 onSubmit={(event) => {
                   event.preventDefault();
                   void saveForm();
                 }}
-                className="space-y-4"
+                className="space-y-5 pt-1"
               >
                 <div className="space-y-2">
-                  <Label htmlFor="player-one">Player / payer name</Label>
-                  <Input
-                    id="player-one"
-                    autoComplete="name"
-                    maxLength={120}
-                    value={form.playerOne}
-                    onChange={(event) => setForm({ ...form, playerOne: event.target.value })}
-                    required
-                  />
-                </div>
-                {editing ? (
-                  <div className="space-y-2">
-                    <Label htmlFor="player-two">Second player (optional)</Label>
-                    <Input
-                      id="player-two"
-                      value={form.playerTwo}
-                      onChange={(event) => setForm({ ...form, playerTwo: event.target.value })}
-                    />
+                  <Label className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                    Game format
+                  </Label>
+                  <div className="grid grid-cols-4 gap-1.5" role="group" aria-label="Game format">
+                    {[
+                      {
+                        value: "SINGLES" as const,
+                        label: "Singles",
+                        detail: "1 vs 1",
+                        Icon: UserRound,
+                      },
+                      {
+                        value: "DOUBLES" as const,
+                        label: "Doubles",
+                        detail: "2 vs 2",
+                        Icon: UsersRound,
+                      },
+                      {
+                        value: "GROUP" as const,
+                        label: "Group",
+                        detail: "3–6 players",
+                        Icon: UsersRound,
+                      },
+                      {
+                        value: "SOLO" as const,
+                        label: "Solo",
+                        detail: "Practice",
+                        Icon: Target,
+                      },
+                    ].map(({ value, label, detail, Icon }) => (
+                      <button
+                        key={value}
+                        type="button"
+                        aria-pressed={form.gameFormat === value}
+                        onClick={() => {
+                          setForm({
+                            ...form,
+                            gameFormat: value,
+                            gameLabel: "",
+                            players: playersForFormat(value, form.players),
+                            durationMinutes:
+                              form.holdMode === "TIMED" &&
+                              !walkInPresetsForFormat(value).includes(form.durationMinutes)
+                                ? 60
+                                : form.durationMinutes,
+                          });
+                          setWalkInValidation({ players: {}, message: null });
+                        }}
+                        className={cn(
+                          "flex min-h-[4.25rem] flex-col items-center justify-center gap-1 rounded-xl border px-1 py-2 text-[11px] transition-colors",
+                          form.gameFormat === value
+                            ? "border-felt/70 bg-felt/15 text-felt shadow-[inset_0_0_0_1px_var(--color-felt)]"
+                            : "border-border bg-surface/70 text-muted-foreground hover:bg-surface-strong",
+                        )}
+                      >
+                        <Icon className="h-4 w-4" aria-hidden="true" />
+                        <span className="font-semibold">{label}</span>
+                        <span className="text-[10px] opacity-80">{detail}</span>
+                      </button>
+                    ))}
                   </div>
-                ) : (
-                  <>
-                    <div className="space-y-2">
-                      <Label htmlFor="customer-phone">Phone (optional)</Label>
-                      <Input
-                        id="customer-phone"
-                        inputMode="tel"
-                        autoComplete="tel"
-                        maxLength={40}
-                        value={form.customerPhone}
-                        onChange={(event) =>
-                          setForm({ ...form, customerPhone: event.target.value })
-                        }
-                      />
+                </div>
+                <section className="space-y-3 rounded-2xl border border-border/80 bg-surface/55 p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <div>
+                      <Label className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                        {form.gameFormat === "SOLO" ? "Solo player" : "Players"}
+                      </Label>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {form.gameFormat === "SINGLES"
+                          ? "1 vs 1"
+                          : form.gameFormat === "DOUBLES"
+                            ? "Two players on each team"
+                            : form.gameFormat === "GROUP"
+                              ? `${form.players.length} of 6 players`
+                              : "Practice session"}
+                      </p>
                     </div>
+                    {form.gameFormat === "GROUP" && form.players.length < 6 ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="min-h-9 gap-1 rounded-xl px-3"
+                        onClick={() => {
+                          setForm({ ...form, players: [...form.players, { name: "" }] });
+                          setWalkInValidation({ players: {}, message: null });
+                        }}
+                      >
+                        <Plus className="h-4 w-4" aria-hidden="true" />
+                        Add player
+                      </Button>
+                    ) : null}
+                  </div>
+                  {form.gameFormat === "SINGLES" ? (
                     <div className="space-y-2">
-                      <p className="text-sm font-medium">Hold the table for</p>
-                      <div className="grid grid-cols-4 gap-1.5">
-                        {WALKIN_BLOCK_OPTIONS.map((minutes) => (
+                      {playerField(0)}
+                      <div className="flex items-center justify-center">
+                        <span className="rounded-full border border-border bg-background px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+                          vs
+                        </span>
+                      </div>
+                      {playerField(1)}
+                    </div>
+                  ) : null}
+                  {form.gameFormat === "DOUBLES" ? (
+                    <div className="space-y-2.5">
+                      <div className="space-y-2 rounded-xl border border-border/70 bg-background/65 p-2.5">
+                        <div className="flex items-center justify-between">
+                          <Badge className="rounded-full bg-felt/10 text-felt">Team A</Badge>
+                          <span className="text-[10px] text-muted-foreground">Opening team</span>
+                        </div>
+                        {playerField(0)}
+                        {playerField(1)}
+                      </div>
+                      <div className="flex items-center justify-center">
+                        <span className="rounded-full border border-border bg-background px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-felt">
+                          vs
+                        </span>
+                      </div>
+                      <div className="space-y-2 rounded-xl border border-border/70 bg-background/65 p-2.5">
+                        <div className="flex items-center justify-between">
+                          <Badge variant="outline" className="rounded-full">
+                            Team B
+                          </Badge>
+                          <span className="text-[10px] text-muted-foreground">Challengers</span>
+                        </div>
+                        {playerField(2)}
+                        {playerField(3)}
+                      </div>
+                    </div>
+                  ) : null}
+                  {form.gameFormat === "GROUP" ? (
+                    <>
+                      <div className="flex flex-wrap gap-1.5">
+                        {["Killer", "Century", "Cutthroat", "9-Ball Ring"].map((label) => (
                           <button
-                            key={minutes}
+                            key={label}
                             type="button"
-                            aria-pressed={form.durationMinutes === minutes}
-                            onClick={() => setForm({ ...form, durationMinutes: minutes })}
+                            aria-pressed={form.gameLabel === label}
+                            onClick={() => setForm({ ...form, gameLabel: label })}
                             className={cn(
-                              "min-h-11 rounded-lg border px-1 text-xs font-semibold",
-                              form.durationMinutes === minutes
-                                ? "border-felt bg-felt/10 text-felt"
-                                : "border-border bg-background text-muted-foreground",
+                              "min-h-8 rounded-full border px-3 text-xs font-medium",
+                              form.gameLabel === label
+                                ? "border-felt/50 bg-felt/10 text-felt"
+                                : "border-border bg-background/70 text-muted-foreground",
                             )}
                           >
-                            {minutes % 60 === 0
-                              ? `${minutes / 60}h 00m`
-                              : `${Math.floor(minutes / 60)}h 30m`}
+                            {label}
                           </button>
                         ))}
                       </div>
-                    </div>
-                    <div className="rounded-xl border border-border bg-background/60 px-3 py-2.5 text-xs text-muted-foreground">
-                      {walkInAvailableMinutes < WALKIN_BLOCK_OPTIONS[0] ? (
-                        <span>
-                          There is not enough time for a 1-hour block before the next booking or
-                          closing.
-                        </span>
+                      <div className="space-y-2">
+                        {form.players.map((player, index) => (
+                          <div key={`walkin-player-${index}`} className="flex items-start gap-2">
+                            <div className="min-w-0 flex-1">{playerField(index)}</div>
+                            {form.players.length > 3 ? (
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="mt-1 h-10 w-10 shrink-0"
+                                aria-label={`Remove player ${index + 1}`}
+                                onClick={() => {
+                                  setForm({
+                                    ...form,
+                                    players: form.players.filter(
+                                      (_, playerIndex) => playerIndex !== index,
+                                    ),
+                                  });
+                                  setWalkInValidation({ players: {}, message: null });
+                                }}
+                              >
+                                <X className="h-4 w-4" aria-hidden="true" />
+                              </Button>
+                            ) : null}
+                          </div>
+                        ))}
+                      </div>
+                      <Field id="game-label" label="Game name (optional)">
+                        <Input
+                          id="game-label"
+                          maxLength={40}
+                          placeholder="Choose a game or enter a name"
+                          value={form.gameLabel}
+                          onChange={(event) => setForm({ ...form, gameLabel: event.target.value })}
+                        />
+                      </Field>
+                    </>
+                  ) : null}
+                  {form.gameFormat === "SOLO" ? (
+                    <>
+                      {playerField(0)}
+                      <div className="space-y-2">
+                        <Label className="text-xs text-muted-foreground">
+                          Focus routine (optional)
+                        </Label>
+                        <div className="flex flex-wrap gap-1.5">
+                          {["Line Drills", "Break & Run", "Century Routine", "Free Practice"].map(
+                            (label) => (
+                              <button
+                                key={label}
+                                type="button"
+                                aria-pressed={form.gameLabel === label}
+                                onClick={() => setForm({ ...form, gameLabel: label })}
+                                className={cn(
+                                  "min-h-8 rounded-full border px-3 text-xs font-medium",
+                                  form.gameLabel === label
+                                    ? "border-felt/50 bg-felt/10 text-felt"
+                                    : "border-border bg-background/70 text-muted-foreground",
+                                )}
+                              >
+                                {label}
+                              </button>
+                            ),
+                          )}
+                        </div>
+                        <Input
+                          id="solo-practice-routine"
+                          maxLength={40}
+                          aria-label="Custom practice routine"
+                          placeholder="Or enter a routine"
+                          value={form.gameLabel}
+                          onChange={(event) => setForm({ ...form, gameLabel: event.target.value })}
+                        />
+                      </div>
+                    </>
+                  ) : null}
+                </section>
+                {!editing ? (
+                  <section className="space-y-3 rounded-2xl border border-border/80 bg-surface/55 p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                        Duration hold
+                      </p>
+                      {walkInNextBooking ? (
+                        <p className="text-[10px] font-semibold text-felt">
+                          Next booking {time(walkInNextBooking.startTime)}
+                        </p>
                       ) : (
-                        <span>
-                          Table held until{" "}
-                          <strong className="text-foreground">{time(walkInPlannedEnd)}</strong>
-                          {walkInActualMinutes < form.durationMinutes
-                            ? " · shortened for the next booking or closing"
-                            : ""}
-                        </span>
+                        <p className="text-[10px] font-semibold text-felt">No booking cutoff</p>
                       )}
                     </div>
-                  </>
-                )}
+                    <div className="grid grid-cols-5 gap-1.5">
+                      <button
+                        type="button"
+                        aria-pressed={form.holdMode === "OPEN"}
+                        onClick={() => setForm({ ...form, holdMode: "OPEN" })}
+                        className={cn(
+                          "min-h-10 rounded-xl border px-1 text-[11px] font-semibold transition-colors",
+                          form.holdMode === "OPEN"
+                            ? "border-felt/70 bg-felt/15 text-felt"
+                            : "border-border bg-background/80 text-muted-foreground hover:bg-surface-strong",
+                        )}
+                      >
+                        Open
+                      </button>
+                      {walkInDurationPresets.map((minutes) => (
+                        <button
+                          key={minutes}
+                          type="button"
+                          aria-pressed={
+                            form.holdMode === "TIMED" && form.durationMinutes === minutes
+                          }
+                          onClick={() =>
+                            setForm({ ...form, holdMode: "TIMED", durationMinutes: minutes })
+                          }
+                          className={cn(
+                            "min-h-10 rounded-xl border px-1 text-[11px] font-semibold transition-colors",
+                            form.holdMode === "TIMED" && form.durationMinutes === minutes
+                              ? "border-felt/70 bg-felt/15 text-felt"
+                              : "border-border bg-background/80 text-muted-foreground hover:bg-surface-strong",
+                          )}
+                        >
+                          {minutes % 60 === 0
+                            ? `${minutes / 60}h`
+                            : `${Math.floor(minutes / 60)}h 30m`}
+                        </button>
+                      ))}
+                      <button
+                        type="button"
+                        aria-pressed={form.holdMode === "CUSTOM"}
+                        onClick={() =>
+                          setForm({
+                            ...form,
+                            holdMode: "CUSTOM",
+                            durationMinutes: Number(customDurationText) || 60,
+                          })
+                        }
+                        className={cn(
+                          "min-h-10 rounded-xl border px-1 text-[11px] font-semibold transition-colors",
+                          form.holdMode === "CUSTOM"
+                            ? "border-felt/70 bg-felt/15 text-felt"
+                            : "border-border bg-background/80 text-muted-foreground hover:bg-surface-strong",
+                        )}
+                      >
+                        Custom
+                      </button>
+                    </div>
+                    {form.holdMode === "CUSTOM" ? (
+                      <Field
+                        id="custom-walkin-duration"
+                        label="Custom duration"
+                        description="30-minute steps · 30 minutes to 24 hours"
+                        error={walkInHoldError}
+                      >
+                        <div className="relative">
+                          <Input
+                            id="custom-walkin-duration"
+                            type="number"
+                            inputMode="numeric"
+                            min={WALKIN_CUSTOM_DURATION_MINUTES}
+                            max={WALKIN_CUSTOM_DURATION_MAX_MINUTES}
+                            step={WALKIN_CUSTOM_DURATION_STEP_MINUTES}
+                            value={customDurationText}
+                            aria-invalid={Boolean(walkInHoldError)}
+                            onChange={(event) => {
+                              const value = event.target.value;
+                              setCustomDurationText(value);
+                              setForm({
+                                ...form,
+                                durationMinutes: value === "" ? 0 : Number(value),
+                              });
+                            }}
+                          />
+                          <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
+                            min
+                          </span>
+                        </div>
+                      </Field>
+                    ) : null}
+                    <div className="flex items-center justify-between gap-3 rounded-xl border border-border/70 bg-background/75 px-3 py-2.5 text-xs">
+                      <span className="flex items-center gap-2 text-muted-foreground">
+                        <Clock3 className="h-4 w-4 shrink-0 text-felt" aria-hidden="true" />
+                        {!walkInCanStart ? (
+                          <span>Not enough time before the next booking.</span>
+                        ) : (
+                          <span>
+                            {form.holdMode === "OPEN"
+                              ? walkInCutoff
+                                ? `Open until ${time(walkInPlannedEnd)} booking`
+                                : "Open · stop manually"
+                              : `Held until ${time(walkInPlannedEnd)}${
+                                  walkInEstimateMinutes < form.durationMinutes
+                                    ? " · shortened for next booking"
+                                    : ""
+                                }`}
+                          </span>
+                        )}
+                      </span>
+                      <span className="shrink-0 text-right text-[10px] text-muted-foreground">
+                        {form.holdMode === "OPEN" && !walkInCutoff ? (
+                          <>
+                            Billing
+                            <strong className="block text-sm text-felt">Live meter</strong>
+                          </>
+                        ) : (
+                          <>
+                            Estimate
+                            <strong className="block text-sm text-felt">
+                              {money(
+                                sessionCharge(walkInTable?.hourlyRate ?? 0, walkInEstimateMinutes),
+                              )}
+                            </strong>
+                          </>
+                        )}
+                      </span>
+                    </div>
+                    {walkInValidation.message ? (
+                      <p role="alert" className="text-xs font-medium text-destructive">
+                        {walkInValidation.message}
+                      </p>
+                    ) : null}
+                  </section>
+                ) : null}
                 <DialogFooter className="flex-row gap-2 sm:justify-end">
                   <Button
                     type="button"
@@ -628,8 +1395,8 @@ export default function SupervisorPage() {
                     loading={isSavingWalkIn}
                     loadingText={editing ? "Saving…" : "Starting…"}
                     disabled={
-                      !form.playerOne.trim() ||
-                      (!editing && walkInAvailableMinutes < WALKIN_BLOCK_OPTIONS[0])
+                      !editing &&
+                      (!walkInCanStart || Boolean(walkInHoldError) || !walkInPlayersValid(form))
                     }
                   >
                     {!editing ? <Play className="h-4 w-4" aria-hidden="true" /> : null}
@@ -655,9 +1422,12 @@ export default function SupervisorPage() {
                       : "text-muted-foreground hover:text-foreground",
                   )}
                 >
-                  {view === "unpaid" && summary.unpaidCount > 0
-                    ? `Unpaid ${summary.unpaidCount}`
-                    : view}
+                  <span>{view}</span>
+                  {view === "unpaid" && summary.unpaidCount > 0 ? (
+                    <span className="ml-1 inline-flex min-w-5 items-center justify-center rounded-full bg-destructive px-1.5 py-0.5 text-[10px] font-bold leading-none text-destructive-foreground">
+                      {summary.unpaidCount}
+                    </span>
+                  ) : null}
                 </button>
               ))}
             </div>
@@ -670,12 +1440,57 @@ export default function SupervisorPage() {
                     Tables
                   </h2>
                   <p className="mt-1 text-xs text-muted-foreground sm:text-sm">
-                    Live sessions and the next reservations for each table.
+                    Live sessions and upcoming reservations.
                   </p>
                 </div>
                 <Badge variant="outline" className="shrink-0">
-                  {snapshot.length} tables
+                  {snapshotLoading
+                    ? "Loading"
+                    : `${filteredTables.length} of ${snapshot.length} tables`}
                 </Badge>
+              </div>
+              <div
+                className="-mx-1 mb-3 flex gap-2 overflow-x-auto px-1 pb-1"
+                role="group"
+                aria-label="Filter tables"
+              >
+                {(
+                  [
+                    ["ALL", "All", tables.length],
+                    ["ACTIVE", "Active", activeTableCount],
+                    [
+                      "SNOOKER",
+                      "Snooker",
+                      tables.filter((table) => table.type === "SNOOKER").length,
+                    ],
+                    ["POOL", "Pool", tables.filter((table) => table.type === "POOL").length],
+                  ] as const
+                ).map(([filter, label, count]) => (
+                  <button
+                    key={filter}
+                    type="button"
+                    aria-pressed={tableFilter === filter}
+                    onClick={() => setTableFilter(filter)}
+                    className={cn(
+                      "min-h-10 shrink-0 rounded-full border px-4 text-xs font-semibold transition-colors sm:text-sm",
+                      tableFilter === filter
+                        ? "border-felt bg-felt text-primary-foreground"
+                        : "border-border bg-surface text-muted-foreground hover:bg-surface-strong hover:text-foreground",
+                    )}
+                  >
+                    {label}
+                    {!snapshotLoading ? (
+                      <span
+                        className={cn(
+                          "ml-1.5",
+                          tableFilter === filter ? "text-primary-foreground/80" : "opacity-70",
+                        )}
+                      >
+                        {count}
+                      </span>
+                    ) : null}
+                  </button>
+                ))}
               </div>
               {snapshotLoading ? (
                 <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
@@ -691,9 +1506,13 @@ export default function SupervisorPage() {
                 <div className="rounded-xl border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
                   No active tables are configured.
                 </div>
+              ) : filteredTables.length === 0 ? (
+                <div className="rounded-xl border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
+                  No tables match this filter.
+                </div>
               ) : (
                 <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                  {tables.map((table) => {
+                  {filteredTables.map((table) => {
                     const active = table.sessions.find((session) => session.status === "ONGOING");
                     const nowBooking = table.sessions.find(
                       (session) =>
@@ -710,21 +1529,31 @@ export default function SupervisorPage() {
                     );
                     const expanded = Boolean(expandedBookings[table.id]);
                     const visibleBookings = expanded ? upcoming : upcoming.slice(0, 1);
+                    const openHoldBooking =
+                      active?.source === "WALKIN" && active.walkInOpenEnded
+                        ? upcoming.find(
+                            (booking) =>
+                              booking.startTime.getTime() === active.plannedEnd.getTime(),
+                          )
+                        : undefined;
                     const isMaintenance = active?.source === "MAINTENANCE";
-                    const players = active?.source === "WALKIN" ? active.players : null;
+                    const activePlayers = active
+                      ? sessionPlayers(active.players, active.customerName)
+                      : [];
                     const playerOne = active
                       ? active.source === "WALKIN"
-                        ? playerName(players, 0, "Walk-in")
+                        ? (activePlayers[0]?.name ?? "Walk-in")
                         : (active.customerName ?? "Online booking")
                       : "";
-                    const playerTwo = active?.source === "WALKIN" ? playerName(players, 1, "") : "";
+                    const playerTwo =
+                      active?.source === "WALKIN" ? (activePlayers[1]?.name ?? "") : "";
                     const start = active?.actualStart ?? active?.startTime;
                     const minutes =
                       active && start ? sessionDurationMinutes(start, new Date(currentTime)) : 0;
                     const rate = active?.rateSnapshot ?? table.hourlyRate;
                     const liveAmount = active ? sessionCharge(rate, minutes) : 0;
                     const overtimeMinutes =
-                      active && active.source !== "MAINTENANCE"
+                      active && active.source !== "MAINTENANCE" && !active.walkInOpenEnded
                         ? Math.max(
                             0,
                             Math.floor((currentTime - active.plannedEnd.getTime()) / 60_000),
@@ -741,12 +1570,10 @@ export default function SupervisorPage() {
                           )
                           .sort((a, b) => a.startTime.getTime() - b.startTime.getTime())[0]
                       : null;
-                    const extensionCutoff = getWalkInCutoff(
-                      academyDateTimeToUtc(academyDateKey(new Date(currentTime)), "23:00"),
-                      extensionBooking?.startTime ?? null,
-                    );
+                    const extensionCutoff = getWalkInCutoff(extensionBooking?.startTime ?? null);
                     const canExtendWalkIn = Boolean(
                       active?.source === "WALKIN" &&
+                      !active.walkInOpenEnded &&
                       getWalkInExtensionEnd(
                         new Date(currentTime),
                         active.plannedEnd,
@@ -776,6 +1603,15 @@ export default function SupervisorPage() {
                             durationMinutes: active.durationMinutes,
                             amount: active.amount ?? 0,
                             source: active.source,
+                            players: activePlayers,
+                            gameFormat: active.gameFormat,
+                            gameLabel: active.gameLabel,
+                            grossAmount: active.grossAmount,
+                            discountPercent: active.discountPercent,
+                            discountAmount: active.discountAmount,
+                            settlementDiscountPercent: active.settlementDiscountPercent,
+                            settlementDiscountAmount: active.settlementDiscountAmount,
+                            payerShares: payerSharesFromUnknown(active.payerShares),
                           }
                         : null;
 
@@ -784,18 +1620,32 @@ export default function SupervisorPage() {
                         key={table.id}
                         className={cn(
                           "overflow-hidden border-border bg-surface",
-                          active && !isMaintenance && !overtimeMinutes && "border-felt/35",
+                          active && !isMaintenance && "border-l-4 border-l-felt",
                           overtimeMinutes > 0 && "border-destructive/50",
+                          !active && !nowBooking && "border-l-4 border-l-border",
                         )}
                       >
                         <CardContent className="p-4">
                           <div className="flex items-start justify-between gap-3">
                             <div className="min-w-0">
-                              <h3 className="text-lg font-bold">{table.name}</h3>
+                              <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                                <h3 className="text-lg font-bold">{table.name}</h3>
+                                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                                  {table.type === "SNOOKER" ? "Snooker" : "Pool"}
+                                </p>
+                              </div>
                               <p className="mt-1 text-xs text-muted-foreground">
-                                {table.type === "SNOOKER" ? "Snooker" : "Pool"} ·{" "}
-                                {money(table.hourlyRate)}/hr ·{" "}
-                                {money(Math.round(table.hourlyRate / 60))}/min
+                                {active?.source === "WALKIN"
+                                  ? active.gameLabel ||
+                                    gameFormatDescription(active.gameFormat) ||
+                                    "Walk-in session"
+                                  : active
+                                    ? playerOne
+                                    : nowBooking
+                                      ? "Online reservation"
+                                      : upcoming.length > 0
+                                        ? `Next booking ${time(upcoming[0]?.startTime ?? null)}`
+                                        : "Ready for walk-in"}
                               </p>
                             </div>
                             <Badge
@@ -817,7 +1667,7 @@ export default function SupervisorPage() {
                                     ? nowBooking?.status === "CONFIRMED"
                                       ? "Booked now"
                                       : "Reserved"
-                                    : "Free"}
+                                    : "Available"}
                             </Badge>
                           </div>
 
@@ -832,12 +1682,35 @@ export default function SupervisorPage() {
                             >
                               <div className="flex items-start justify-between gap-3">
                                 <div className="min-w-0">
-                                  <p className="truncate font-semibold">{playerOne}</p>
-                                  {playerTwo ? (
-                                    <p className="truncate text-xs text-muted-foreground">
-                                      vs. {playerTwo}
-                                    </p>
-                                  ) : null}
+                                  {active.source === "WALKIN" ? (
+                                    <>
+                                      <p className="truncate font-semibold">
+                                        {active.gameLabel ||
+                                          (active.gameFormat
+                                            ? active.gameFormat === "GROUP"
+                                              ? "Group game"
+                                              : active.gameFormat === "DOUBLES"
+                                                ? "Doubles · 2 vs 2"
+                                                : active.gameFormat === "SOLO"
+                                                  ? "Solo practice"
+                                                  : "Singles · 1 vs 1"
+                                            : "Walk-in")}
+                                      </p>
+                                      <div className="mt-1 flex flex-wrap gap-1">
+                                        {activePlayers.map((player, index) => (
+                                          <span
+                                            key={`${active.id}-player-${index}`}
+                                            className="rounded-md bg-background/80 px-1.5 py-0.5 text-xs text-muted-foreground"
+                                          >
+                                            {player.team ? `Team ${player.team} · ` : ""}
+                                            {player.name}
+                                          </span>
+                                        ))}
+                                      </div>
+                                    </>
+                                  ) : (
+                                    <p className="truncate font-semibold">{playerOne}</p>
+                                  )}
                                   {active.customerPhone ? (
                                     <p className="truncate text-xs text-muted-foreground">
                                       {active.customerPhone}
@@ -845,7 +1718,13 @@ export default function SupervisorPage() {
                                   ) : null}
                                   <p className="mt-1 text-xs text-muted-foreground">
                                     {active.source === "ONLINE" ? "Online" : "Walk-in"} · Started{" "}
-                                    {time(start ?? null)} · due {time(active.plannedEnd)}
+                                    {time(start ?? null)}
+                                    {active.source === "WALKIN" && active.walkInOpenEnded
+                                      ? active.plannedEnd.getTime() !==
+                                        OPEN_WALKIN_PLANNED_END.getTime()
+                                        ? ` · Open until ${time(active.plannedEnd)} booking`
+                                        : " · Open hold"
+                                      : ` · due ${time(active.plannedEnd)}`}
                                   </p>
                                 </div>
                                 {!isMaintenance ? (
@@ -864,13 +1743,19 @@ export default function SupervisorPage() {
                                   <Clock3 className="h-3.5 w-3.5" aria-hidden="true" />
                                   Overtime · {overtimeMinutes}m past the block
                                 </p>
-                              ) : !isMaintenance ? (
+                              ) : !isMaintenance &&
+                                !(active.source === "WALKIN" && active.walkInOpenEnded) ? (
                                 <p className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
                                   <Clock3 className="h-3.5 w-3.5" aria-hidden="true" />
                                   {Math.floor(
                                     Math.max(0, active.plannedEnd.getTime() - currentTime) / 60_000,
                                   )}{" "}
                                   min left on the block
+                                </p>
+                              ) : !isMaintenance ? (
+                                <p className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
+                                  <Clock3 className="h-3.5 w-3.5" aria-hidden="true" />
+                                  Billing continues until the session is stopped.
                                 </p>
                               ) : null}
                             </div>
@@ -935,7 +1820,7 @@ export default function SupervisorPage() {
                                                 booking.id,
                                                 "CONFIRMED",
                                               );
-                                              await refresh();
+                                              await refreshAfterMutation();
                                             },
                                           )
                                         }
@@ -1011,21 +1896,12 @@ export default function SupervisorPage() {
                                   type="button"
                                   variant="destructive"
                                   className="min-h-11 w-full gap-2"
-                                  onClick={() =>
-                                    setEndSession({
-                                      sessionId: active.id,
-                                      payerName:
-                                        active.source === "ONLINE"
-                                          ? (active.customerName ?? "")
-                                          : playerName(active.players, 0, ""),
-                                      paymentMethod: "CASH",
-                                    })
-                                  }
+                                  onClick={() => openCloseout(active)}
                                 >
                                   <Square className="h-4 w-4" aria-hidden="true" />
                                   Stop & close
                                 </Button>
-                                {active.source === "WALKIN" ? (
+                                {active.source === "WALKIN" && !active.walkInOpenEnded ? (
                                   <Button
                                     type="button"
                                     variant="outline"
@@ -1036,7 +1912,7 @@ export default function SupervisorPage() {
                                     title={
                                       canExtendWalkIn
                                         ? "Add 30 minutes"
-                                        : "A full 30-minute extension is not available before the next booking or closing"
+                                        : "A full 30-minute extension is not available before the next booking"
                                     }
                                     onClick={() => void extendSession(active.id)}
                                   >
@@ -1067,75 +1943,113 @@ export default function SupervisorPage() {
 
           <div className="mt-4 grid gap-6 lg:mt-6">
             {activeHistory === "unpaid" ? (
-              <Card className="min-w-0 border-border bg-surface">
-                <CardHeader className="p-4 sm:p-6">
-                  <CardTitle>Unpaid dues</CardTitle>
-                  <p className="text-sm text-muted-foreground">
-                    Completed sessions waiting for payment · {money(summary.unpaidAmount)} total
-                  </p>
-                </CardHeader>
-                <CardContent className="space-y-3 p-4 pt-0 sm:p-6 sm:pt-0">
-                  {dues.length === 0 && duesPage.loading ? (
-                    Array.from({ length: 3 }, (_, index) => (
-                      <div key={index} className="space-y-2 rounded-xl border border-border p-4">
-                        <Skeleton className="h-4 w-2/3" />
-                        <Skeleton className="h-4 w-1/2" />
-                      </div>
-                    ))
-                  ) : dues.length === 0 ? (
-                    <div className="rounded-xl border border-dashed border-border p-8 text-center">
-                      <p className="font-medium">All settled</p>
-                      <p className="mt-1 text-sm text-muted-foreground">
-                        There are no completed sessions with an outstanding balance.
-                      </p>
+              <section className="min-w-0 space-y-3" aria-label="Unpaid sessions">
+                {dues.length === 0 && duesPage.loading ? (
+                  Array.from({ length: 3 }, (_, index) => (
+                    <div key={index} className="space-y-2 rounded-xl border border-border p-4">
+                      <Skeleton className="h-4 w-2/3" />
+                      <Skeleton className="h-4 w-1/2" />
                     </div>
-                  ) : (
-                    dues.map((entry) => (
-                      <div
-                        key={entry.id}
-                        className="rounded-xl border border-border bg-background/60 p-4"
-                      >
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="min-w-0">
-                            <p className="truncate font-semibold">
-                              {entry.payerName || entry.playerOne}
-                            </p>
-                            <p className="mt-1 text-xs text-muted-foreground">
-                              {entry.tableName} · {entry.source === "ONLINE" ? "Online" : "Walk-in"}
-                            </p>
-                            <p className="mt-1 text-xs text-muted-foreground">
-                              {entry.durationMinutes ?? 0} min · {entry.startTime}–
-                              {entry.endTime || "—"}
-                            </p>
-                          </div>
-                          <p className="shrink-0 text-lg font-bold text-warning">
-                            {money(entry.amount)}
-                          </p>
-                        </div>
-                        <Button
-                          type="button"
-                          className="mt-3 min-h-11 w-full"
-                          onClick={() =>
-                            setPaymentEntry({
-                              sessionId: entry.sessionId!,
-                              payerName: entry.payerName || entry.playerOne,
-                              paymentMethod: "CASH",
-                            })
-                          }
-                        >
-                          Record payment
-                        </Button>
-                      </div>
-                    ))
-                  )}
-                  {duesPage.error ? (
-                    <p role="alert" className="text-sm text-destructive">
-                      {duesPage.error}
+                  ))
+                ) : dues.length === 0 ? (
+                  <div className="rounded-xl border border-dashed border-border p-8 text-center">
+                    <p className="font-medium">All settled</p>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      There are no completed sessions with an outstanding balance.
                     </p>
-                  ) : null}
-                  {duesPage.hasMore ? <div ref={duesPage.sentinelRef} className="h-4" /> : null}
-                </CardContent>
-              </Card>
+                  </div>
+                ) : (
+                  dues.map((entry) => (
+                    <article
+                      key={entry.id}
+                      className="rounded-2xl border border-border bg-background/60 p-4 sm:p-5"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="truncate text-base font-bold">
+                            {entry.payerName || entry.playerOne}
+                          </p>
+                          <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                            <Badge variant="outline" className="rounded-full">
+                              Table {entry.tableName}
+                            </Badge>
+                            <span className="text-xs text-muted-foreground">
+                              {entry.source === "ONLINE"
+                                ? "Online booking"
+                                : entry.source === "WALKIN"
+                                  ? "Walk-in"
+                                  : "Maintenance"}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="shrink-0 text-right">
+                          <p className="text-xl font-bold text-felt">{money(entry.amount)}</p>
+                          <Badge
+                            variant="outline"
+                            className="mt-1 rounded-full border-warning/40 text-warning"
+                          >
+                            Awaiting payment
+                          </Badge>
+                        </div>
+                      </div>
+                      <div className="mt-3 border-t border-border/70 pt-3">
+                        <p className="text-sm font-medium">
+                          {entry.gameLabel || gameFormatDescription(entry.gameFormat)
+                            ? `${entry.gameLabel || gameFormatDescription(entry.gameFormat)} · `
+                            : ""}
+                          {entry.players.map((player) => player.name).join(" · ")}
+                        </p>
+                        <p className="mt-1.5 text-xs text-muted-foreground">
+                          {entry.startTime}–{entry.endTime || "—"} · {entry.durationMinutes ?? 0}{" "}
+                          min
+                        </p>
+                      </div>
+                      {entry.discountPercent > 0 ? (
+                        <p className="mt-2 text-xs text-muted-foreground">
+                          {entry.discountPercent}% discount · {money(entry.discountAmount)} off
+                          {entry.grossAmount !== null ? ` from ${money(entry.grossAmount)}` : ""}
+                        </p>
+                      ) : null}
+                      {entry.settlementDiscountPercent > 0 ? (
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Settlement discount {entry.settlementDiscountPercent}% ·{" "}
+                          {money(entry.settlementDiscountAmount)} off
+                        </p>
+                      ) : null}
+                      {entry.payerShares.length > 0 ? (
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          {entry.payerShares.map((share) => (
+                            <Badge key={`${entry.id}-${share.name}`} variant="outline">
+                              {share.name}: {money(share.amount)}
+                            </Badge>
+                          ))}
+                        </div>
+                      ) : null}
+                      <Button
+                        type="button"
+                        className="mt-3 min-h-11 w-full rounded-xl"
+                        onClick={() =>
+                          setPaymentEntry({
+                            sessionId: entry.sessionId!,
+                            payerName: entry.payerName || entry.playerOne,
+                            paymentMethod: "CASH",
+                            applyDiscount: false,
+                            discountPercent: "0",
+                          })
+                        }
+                      >
+                        Record payment
+                      </Button>
+                    </article>
+                  ))
+                )}
+                {duesPage.error ? (
+                  <p role="alert" className="text-sm text-destructive">
+                    {duesPage.error}
+                  </p>
+                ) : null}
+                {duesPage.hasMore ? <div ref={duesPage.sentinelRef} className="h-4" /> : null}
+              </section>
             ) : null}
             <Card
               className={cn(
@@ -1144,7 +2058,12 @@ export default function SupervisorPage() {
               )}
             >
               <CardHeader className="gap-3 p-4 sm:p-6">
-                <CardTitle>Ledger</CardTitle>
+                <div>
+                  <CardTitle>Ledger</CardTitle>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Session history and payment records.
+                  </p>
+                </div>
                 <Input
                   value={ledgerSearch}
                   onChange={(event) => setLedgerSearch(event.target.value)}
@@ -1152,6 +2071,80 @@ export default function SupervisorPage() {
                   aria-label="Search ledger by player, phone, or booking reference"
                   className="min-h-11"
                 />
+                <div className="space-y-2.5" aria-label="Ledger filters">
+                  <div className="space-y-1">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
+                      Payment status
+                    </p>
+                    <div
+                      className="flex gap-2 overflow-x-auto pb-1"
+                      role="group"
+                      aria-label="Filter ledger by payment status"
+                    >
+                      {(
+                        [
+                          { value: "ALL", label: "All" },
+                          { value: "PAID", label: "Paid" },
+                          { value: "UNPAID", label: "Unpaid" },
+                        ] as const
+                      ).map((filter) => {
+                        const selected = ledgerPaymentFilter === filter.value;
+                        return (
+                          <button
+                            key={filter.value}
+                            type="button"
+                            aria-pressed={selected}
+                            onClick={() => setLedgerPaymentFilter(filter.value)}
+                            className={cn(
+                              "min-h-9 shrink-0 rounded-full border px-4 text-xs font-semibold transition-colors",
+                              selected
+                                ? "border-felt bg-felt text-primary-foreground"
+                                : "border-border bg-background/70 text-muted-foreground hover:text-foreground",
+                            )}
+                          >
+                            {filter.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
+                      Table type
+                    </p>
+                    <div
+                      className="flex gap-2 overflow-x-auto pb-1"
+                      role="group"
+                      aria-label="Filter ledger by table type"
+                    >
+                      {(
+                        [
+                          { value: "ALL", label: "All tables" },
+                          { value: "SNOOKER", label: "Snooker" },
+                          { value: "POOL", label: "Pool" },
+                        ] as const
+                      ).map((filter) => {
+                        const selected = ledgerTableFilter === filter.value;
+                        return (
+                          <button
+                            key={filter.value}
+                            type="button"
+                            aria-pressed={selected}
+                            onClick={() => setLedgerTableFilter(filter.value)}
+                            className={cn(
+                              "min-h-9 shrink-0 rounded-full border px-4 text-xs font-semibold transition-colors",
+                              selected
+                                ? "border-felt bg-felt text-primary-foreground"
+                                : "border-border bg-background/70 text-muted-foreground hover:text-foreground",
+                            )}
+                          >
+                            {filter.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
               </CardHeader>
               <CardContent className="overflow-hidden p-0">
                 <div
@@ -1194,7 +2187,7 @@ export default function SupervisorPage() {
                       ) : entries.length === 0 ? (
                         <tr>
                           <td colSpan={9} className="px-4 py-10 text-center text-muted-foreground">
-                            No session records yet.
+                            No sessions match the selected filters or search.
                           </td>
                         </tr>
                       ) : (
@@ -1202,8 +2195,17 @@ export default function SupervisorPage() {
                           <tr key={entry.id} className="border-b border-border/80 last:border-0">
                             <td className="px-4 py-3 font-medium">{entry.tableName}</td>
                             <td className="px-4 py-3">
-                              <div>{entry.playerOne}</div>
-                              <div className="text-xs text-muted-foreground">{entry.playerTwo}</div>
+                              {entry.gameLabel ? (
+                                <div className="text-xs font-medium text-felt">
+                                  {entry.gameLabel}
+                                </div>
+                              ) : null}
+                              {entry.players.map((player, index) => (
+                                <div key={`${entry.id}-ledger-player-${index}`}>
+                                  {player.team ? `Team ${player.team} · ` : ""}
+                                  {player.name}
+                                </div>
+                              ))}
                             </td>
                             <td className="px-4 py-3">
                               <Badge variant="outline" className="border-felt/40 text-felt">
@@ -1225,7 +2227,18 @@ export default function SupervisorPage() {
                                 : "Unpaid"}
                             </td>
                             <td className="px-4 py-3">
-                              {entry.amount > 0 ? money(entry.amount) : "—"}
+                              <div>{money(entry.amount)}</div>
+                              {entry.discountPercent > 0 ? (
+                                <div className="text-xs text-muted-foreground">
+                                  {entry.discountPercent}% off · {money(entry.discountAmount)}
+                                </div>
+                              ) : null}
+                              {entry.settlementDiscountPercent > 0 ? (
+                                <div className="text-xs text-muted-foreground">
+                                  Settlement {entry.settlementDiscountPercent}% off ·{" "}
+                                  {money(entry.settlementDiscountAmount)}
+                                </div>
+                              ) : null}
                             </td>
                             <td className="px-4 py-3">
                               <div className="flex justify-end gap-1">
@@ -1242,13 +2255,7 @@ export default function SupervisorPage() {
                                     <Button
                                       variant="ghost"
                                       size="icon"
-                                      onClick={() =>
-                                        setEndSession({
-                                          sessionId: entry.sessionId!,
-                                          payerName: entry.payerName || entry.playerOne,
-                                          paymentMethod: "CASH",
-                                        })
-                                      }
+                                      onClick={() => openEntryCloseout(entry)}
                                       aria-label="Finish session"
                                     >
                                       <Square className="h-4 w-4" />
@@ -1259,13 +2266,7 @@ export default function SupervisorPage() {
                                   <Button
                                     variant="ghost"
                                     size="icon"
-                                    onClick={() =>
-                                      setEndSession({
-                                        sessionId: entry.sessionId!,
-                                        payerName: entry.payerName || entry.playerOne,
-                                        paymentMethod: "CASH",
-                                      })
-                                    }
+                                    onClick={() => openEntryCloseout(entry)}
                                     aria-label="Stop online booking"
                                   >
                                     <Square className="h-4 w-4" />
@@ -1281,7 +2282,7 @@ export default function SupervisorPage() {
                                         "The table will be made available again.",
                                         async () => {
                                           await cancelSessionAction(entry.sessionId!);
-                                          await refresh();
+                                          await refreshAfterMutation();
                                         },
                                       )
                                     }
@@ -1324,46 +2325,72 @@ export default function SupervisorPage() {
                     ))
                   ) : entries.length === 0 ? (
                     <p className="rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
-                      No session records match these filters.
+                      No sessions match the selected filters or search.
                     </p>
                   ) : (
                     entries.map((entry) => (
                       <article
                         key={entry.id}
-                        className="rounded-xl border border-border bg-background/60 p-4"
+                        className="rounded-2xl border border-border bg-background/60 p-4 sm:p-5"
                       >
                         <div className="flex items-start justify-between gap-3">
                           <div className="min-w-0">
-                            <p className="truncate font-semibold">
+                            <p className="truncate text-base font-bold">
                               {entry.payerName || entry.playerOne}
                             </p>
-                            <p className="mt-1 truncate text-xs text-muted-foreground">
-                              {entry.tableName} ·{" "}
-                              {entry.source === "ONLINE"
-                                ? "Online"
-                                : entry.source === "WALKIN"
-                                  ? "Walk-in"
-                                  : "Maintenance"}
-                            </p>
+                            <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                              <Badge variant="outline" className="rounded-full">
+                                Table {entry.tableName}
+                              </Badge>
+                              <span className="text-xs text-muted-foreground">
+                                {entry.source === "ONLINE"
+                                  ? "Online"
+                                  : entry.source === "WALKIN"
+                                    ? "Walk-in"
+                                    : "Maintenance"}
+                              </span>
+                            </div>
                           </div>
-                          <p className="shrink-0 font-bold">
-                            {entry.amount > 0 ? money(entry.amount) : "—"}
-                          </p>
+                          <div className="shrink-0 text-right">
+                            <p className="text-lg font-bold text-felt">{money(entry.amount)}</p>
+                            {entry.discountPercent > 0 ? (
+                              <p className="text-xs text-muted-foreground">
+                                {entry.discountPercent}% off
+                              </p>
+                            ) : null}
+                            {entry.settlementDiscountPercent > 0 ? (
+                              <p className="text-xs text-muted-foreground">
+                                Settlement {entry.settlementDiscountPercent}% off
+                              </p>
+                            ) : null}
+                          </div>
                         </div>
-                        {entry.playerTwo ? (
+                        <p className="mt-3 text-sm font-medium">
+                          {entry.gameLabel || gameFormatDescription(entry.gameFormat)
+                            ? `${entry.gameLabel || gameFormatDescription(entry.gameFormat)} · `
+                            : ""}
+                          {entry.players.map((player) => player.name).join(" · ")}
+                        </p>
+                        {entry.payerShares.length > 0 ? (
                           <p className="mt-1 text-xs text-muted-foreground">
-                            {entry.playerOne} vs. {entry.playerTwo}
+                            Shares:{" "}
+                            {entry.payerShares
+                              .map((share) => `${share.name} ${money(share.amount)}`)
+                              .join(" · ")}
                           </p>
                         ) : null}
                         <div className="mt-3 flex flex-wrap items-center gap-2">
-                          <Badge variant="outline">{entry.statusLabel}</Badge>
+                          <Badge variant="outline" className="rounded-full">
+                            {entry.statusLabel}
+                          </Badge>
                           <Badge
                             variant="outline"
-                            className={
+                            className={cn(
+                              "rounded-full",
                               entry.payment === "PAID"
                                 ? "border-felt/40 text-felt"
-                                : "border-warning/40 text-warning"
-                            }
+                                : "border-warning/40 text-warning",
+                            )}
                           >
                             {entry.payment === "PAID" ? `Paid · ${entry.paymentMethod}` : "Unpaid"}
                           </Badge>
@@ -1384,12 +2411,14 @@ export default function SupervisorPage() {
                         entry.amount > 0 ? (
                           <Button
                             type="button"
-                            className="mt-3 min-h-10 w-full"
+                            className="mt-3 min-h-11 w-full rounded-xl"
                             onClick={() =>
                               setPaymentEntry({
                                 sessionId: entry.sessionId!,
                                 payerName: entry.payerName || entry.playerOne,
                                 paymentMethod: "CASH",
+                                applyDiscount: false,
+                                discountPercent: "0",
                               })
                             }
                           >
@@ -1478,7 +2507,7 @@ export default function SupervisorPage() {
                                 "The booking will remain reserved for the customer.",
                                 async () => {
                                   await updateBookingStatusAction(booking.id, "CONFIRMED");
-                                  await refresh();
+                                  await refreshAfterMutation();
                                 },
                               )
                             }
@@ -1496,7 +2525,7 @@ export default function SupervisorPage() {
                                 "Use this only when the customer did not arrive for the approved booking.",
                                 async () => {
                                   await updateBookingStatusAction(booking.id, "NO_SHOW");
-                                  await refresh();
+                                  await refreshAfterMutation();
                                 },
                               )
                             }
@@ -1514,7 +2543,7 @@ export default function SupervisorPage() {
                                 "The table will become available for this time range.",
                                 async () => {
                                   await updateBookingStatusAction(booking.id, "CANCELLED");
-                                  await refresh();
+                                  await refreshAfterMutation();
                                 },
                               )
                             }
@@ -1533,6 +2562,8 @@ export default function SupervisorPage() {
                                 sessionId: booking.id,
                                 payerName: booking.customerName,
                                 paymentMethod: "CASH",
+                                applyDiscount: false,
+                                discountPercent: "0",
                               })
                             }
                           >
@@ -1595,97 +2626,405 @@ export default function SupervisorPage() {
             if (!open && !isEndingSession) setEndSession(null);
           }}
         >
-          <AlertDialogContent className="max-h-[90dvh] w-[calc(100%-1.5rem)] max-w-md overflow-y-auto rounded-2xl">
-            <AlertDialogHeader>
-              <AlertDialogTitle>
-                Close table · {closingPlayerName || closingTable?.name || "session"}
-              </AlertDialogTitle>
-              <AlertDialogDescription>
-                {closingTable?.name ?? "Table"} ·{" "}
-                {closingSession?.source === "ONLINE" ? "Online booking" : "Walk-in"}
-              </AlertDialogDescription>
+          <AlertDialogContent className="flex max-h-[92dvh] w-[calc(100%-1rem)] max-w-lg flex-col gap-0 overflow-hidden rounded-3xl border-border/80 p-0 shadow-2xl">
+            <AlertDialogHeader className="shrink-0 border-b border-border/80 p-4 pr-12 text-left sm:p-5">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <AlertDialogTitle className="truncate text-base sm:text-lg">
+                    {closingTable?.name ?? "Table"} ·{" "}
+                    {closingSession?.source === "WALKIN"
+                      ? closingSession.gameLabel ||
+                        gameFormatDescription(closingSession.gameFormat) ||
+                        "Walk-in"
+                      : closingSession?.source === "ONLINE"
+                        ? "Online booking"
+                        : "Close session"}
+                  </AlertDialogTitle>
+                  <AlertDialogDescription className="mt-1">
+                    {closingMinutes} min · {time(closingStartedAt ?? null)}–
+                    {time(new Date(currentTime))}
+                    {closingTable
+                      ? ` · ${closingTable.type === "SNOOKER" ? "Snooker" : "Pool"}`
+                      : ""}
+                  </AlertDialogDescription>
+                </div>
+                <div className="shrink-0 text-right">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                    Total due
+                  </p>
+                  <p className="text-2xl font-bold text-felt">{money(closingAmount)}</p>
+                </div>
+              </div>
             </AlertDialogHeader>
-            <div className="space-y-4 py-2">
-              <div className="space-y-2 rounded-xl border border-border bg-background/60 p-3">
-                <div className="flex justify-between gap-3 text-sm">
-                  <span className="text-muted-foreground">Start</span>
-                  <span>{time(closingStartedAt ?? null)}</span>
+            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain p-4 sm:p-5">
+              <section className="space-y-3 rounded-2xl border border-border/80 bg-surface/70 p-3 sm:p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <DiscountToggle
+                    id="closeout-discount-toggle"
+                    checked={Boolean(endSession?.applyDiscount)}
+                    onCheckedChange={(checked) =>
+                      setEndSession((current) =>
+                        current ? { ...current, applyDiscount: checked } : current,
+                      )
+                    }
+                    label="Apply supervisor discount"
+                  />
+                  <span className="shrink-0 text-right text-sm">
+                    {closingDiscountAmount > 0 ? (
+                      <>
+                        <span className="text-muted-foreground line-through">
+                          {money(closingGrossAmount)}
+                        </span>
+                        <strong className="ml-2 text-felt">{money(closingAmount)}</strong>
+                      </>
+                    ) : (
+                      <strong className="text-felt">{money(closingGrossAmount)}</strong>
+                    )}
+                  </span>
                 </div>
-                <div className="flex justify-between gap-3 text-sm">
-                  <span className="text-muted-foreground">End</span>
-                  <span>{time(new Date(currentTime))}</span>
-                </div>
-                <div className="flex justify-between gap-3 text-sm">
-                  <span className="text-muted-foreground">Played</span>
-                  <span>{closingMinutes} min</span>
-                </div>
-                <div className="flex items-end justify-between gap-3 border-t border-border pt-2">
-                  <span className="font-semibold">Amount due</span>
-                  <span className="text-2xl font-bold text-warning">{money(closingAmount)}</span>
-                </div>
-                <p className="text-[11px] text-muted-foreground">
-                  Billed at {money(closingRate)}/hr using actual play time.
-                </p>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="payer-name">Who is paying?</Label>
-                <Input
-                  id="payer-name"
-                  autoComplete="name"
-                  maxLength={120}
-                  placeholder="Enter the payer's name"
-                  value={endSession?.payerName ?? ""}
-                  onChange={(event) =>
-                    setEndSession((current) =>
-                      current ? { ...current, payerName: event.target.value } : current,
-                    )
-                  }
-                  required
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="end-payment">Settlement</Label>
-                <select
-                  id="end-payment"
-                  value={endSession?.paymentMethod ?? "UNPAID"}
-                  onChange={(event) =>
-                    setEndSession((current) =>
-                      current
-                        ? {
-                            ...current,
-                            paymentMethod:
-                              event.target.value === "UNPAID"
-                                ? null
-                                : (event.target.value as "CASH" | "UPI" | "CARD"),
+                {endSession?.applyDiscount ? (
+                  <>
+                    <div
+                      className="flex flex-wrap gap-2"
+                      role="group"
+                      aria-label="Discount presets"
+                    >
+                      {[
+                        { label: "15% off", value: "15" },
+                        { label: "25% off", value: "25" },
+                        { label: "Waive 100%", value: "100" },
+                      ].map((preset) => (
+                        <button
+                          key={preset.value}
+                          type="button"
+                          aria-pressed={endSession.discountPercent === preset.value}
+                          onClick={() =>
+                            setEndSession((current) =>
+                              current ? { ...current, discountPercent: preset.value } : current,
+                            )
                           }
-                        : current,
-                    )
-                  }
-                  className="flex min-h-11 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                >
-                  <option value="CASH">Paid · Cash</option>
-                  <option value="UPI">Paid · UPI</option>
-                  <option value="CARD">Paid · Card</option>
-                  <option value="UNPAID">Add to unpaid dues</option>
-                </select>
-              </div>
+                          className={cn(
+                            "min-h-9 rounded-xl border px-3 text-xs font-semibold transition-colors",
+                            endSession.discountPercent === preset.value
+                              ? "border-felt/60 bg-felt text-primary-foreground"
+                              : "border-border bg-background/70 text-muted-foreground hover:text-foreground",
+                          )}
+                        >
+                          {preset.label}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="grid grid-cols-[minmax(0,8rem)_1fr] items-center gap-3">
+                      <Field
+                        id="session-discount"
+                        label="Discount (%)"
+                        error={closingDiscountError}
+                      >
+                        <Input
+                          id="session-discount"
+                          type="number"
+                          inputMode="decimal"
+                          min="0"
+                          max="100"
+                          step="0.01"
+                          className="min-h-10 text-right"
+                          value={endSession.discountPercent}
+                          onChange={(event) =>
+                            setEndSession((current) =>
+                              current
+                                ? { ...current, discountPercent: event.target.value }
+                                : current,
+                            )
+                          }
+                          {...fieldA11yProps("session-discount", closingDiscountError)}
+                        />
+                      </Field>
+                      <p className="min-w-0 rounded-lg bg-background/75 px-3 py-2 text-right text-xs text-muted-foreground">
+                        {money(closingGrossAmount)} − {money(closingDiscountAmount)} ={" "}
+                        <strong className="text-felt">{money(closingAmount)}</strong>
+                      </p>
+                    </div>
+                  </>
+                ) : null}
+                <p className="text-[11px] text-muted-foreground">
+                  Billed at {money(closingRate)}/hr for completed minutes only.
+                </p>
+              </section>
+
+              <section className="space-y-2.5">
+                <div className="space-y-2.5">
+                  <div>
+                    <Label className="text-xs font-semibold uppercase tracking-[0.1em] text-muted-foreground">
+                      Who is paying?
+                    </Label>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Select one payer or split the bill across players.
+                    </p>
+                  </div>
+                  {endSession?.gameFormat === "DOUBLES" ? (
+                    <div className="space-y-2 rounded-2xl border border-felt/20 bg-felt/5 p-3">
+                      <div>
+                        <p className="text-xs font-semibold text-foreground">Which team lost?</p>
+                        <p className="mt-0.5 text-[11px] text-muted-foreground">
+                          Choose a team to select both players as payers.
+                        </p>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        {(["A", "B"] as const).map((team) => {
+                          const teamPlayers = endSession.players.filter(
+                            (player) => player.team === team,
+                          );
+                          const selected = endSession.payerTeam === team;
+                          return (
+                            <button
+                              key={team}
+                              type="button"
+                              aria-pressed={selected}
+                              aria-label={`Team ${team} lost; select its players as payers`}
+                              disabled={teamPlayers.length !== 2}
+                              onClick={() => selectPayerTeam(team)}
+                              className={cn(
+                                "flex min-h-14 flex-col items-start justify-center rounded-xl border px-3 py-2 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+                                selected
+                                  ? "border-felt/60 bg-felt/10 text-felt"
+                                  : "border-border bg-background/70 text-foreground hover:border-felt/40",
+                              )}
+                            >
+                              <span className="text-sm font-semibold">Team {team}</span>
+                              <span className="mt-0.5 line-clamp-1 text-[10px] text-muted-foreground">
+                                {teamPlayers.length === 2
+                                  ? teamPlayers.map((player) => player.name).join(" · ")
+                                  : "Team assignment unavailable"}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ) : null}
+                  <div className="flex gap-2 overflow-x-auto pb-1">
+                    <button
+                      type="button"
+                      aria-pressed={
+                        Boolean(endSession?.playerNames.length) &&
+                        endSession?.payerNames.length === endSession?.playerNames.length
+                      }
+                      onClick={() =>
+                        setEndSession((current) =>
+                          current
+                            ? {
+                                ...current,
+                                payerTeam: null,
+                                payerNames: [...current.playerNames],
+                              }
+                            : current,
+                        )
+                      }
+                      className={cn(
+                        "min-h-9 shrink-0 rounded-full border px-3 text-xs font-semibold",
+                        endSession?.payerNames.length === endSession?.playerNames.length &&
+                          Boolean(endSession?.playerNames.length)
+                          ? "border-felt/50 bg-felt/10 text-felt"
+                          : "border-border bg-background/60 text-muted-foreground",
+                      )}
+                    >
+                      Split evenly
+                    </button>
+                    <button
+                      type="button"
+                      aria-pressed={endSession?.payerNames.length === 1}
+                      onClick={() =>
+                        setEndSession((current) =>
+                          current
+                            ? {
+                                ...current,
+                                payerTeam: null,
+                                payerNames: current.playerNames.slice(0, 1),
+                              }
+                            : current,
+                        )
+                      }
+                      className={cn(
+                        "min-h-9 shrink-0 rounded-full border px-3 text-xs font-semibold",
+                        endSession?.payerNames.length === 1
+                          ? "border-felt/50 bg-felt/10 text-felt"
+                          : "border-border bg-background/60 text-muted-foreground",
+                      )}
+                    >
+                      Single payer
+                    </button>
+                  </div>
+                  {endSession?.payerNames.length === 0 && closingAmount > 0 ? (
+                    <p className="text-xs text-muted-foreground" role="status">
+                      {endSession.gameFormat === "DOUBLES"
+                        ? "Select the losing team or choose individual payers below."
+                        : "Select at least one payer to close this session."}
+                    </p>
+                  ) : null}
+                </div>
+                <div className="overflow-hidden rounded-2xl border border-border/80 bg-background/50">
+                  {endSession?.playerNames.map((name, index) => {
+                    const selected = endSession.payerNames.includes(name);
+                    const share = closingPayerShares.find((item) => item.name === name);
+                    const player = endSession.players[index];
+                    const teamPosition = player?.team
+                      ? endSession.players
+                          .slice(0, index + 1)
+                          .filter((candidate) => candidate.team === player.team).length
+                      : index + 1;
+                    return (
+                      <div
+                        key={name}
+                        className={cn(
+                          "flex min-h-14 items-center justify-between gap-3 px-3 py-2.5 transition-colors",
+                          index > 0 && "border-t border-border/70",
+                          selected && "bg-felt/5",
+                        )}
+                      >
+                        <span className="flex min-w-0 items-center gap-2.5">
+                          <span
+                            className={cn(
+                              "flex h-8 min-w-8 items-center justify-center rounded-lg px-1 text-[10px] font-bold",
+                              selected
+                                ? "bg-felt/15 text-felt"
+                                : "bg-surface-strong text-muted-foreground",
+                            )}
+                          >
+                            {player?.team ? `${player.team}${teamPosition}` : `P${index + 1}`}
+                          </span>
+                          <span className="min-w-0">
+                            <span className="block truncate text-sm font-medium">{name}</span>
+                            {player?.team ? (
+                              <span className="block text-[10px] text-muted-foreground">
+                                Team {player.team}
+                              </span>
+                            ) : null}
+                          </span>
+                        </span>
+                        <span className="flex shrink-0 items-center gap-2.5">
+                          <span className={cn("text-sm font-semibold", selected && "text-felt")}>
+                            {share ? money(share.amount) : money(0)}
+                          </span>
+                          <Checkbox
+                            id={`payer-${endSession?.sessionId}-${index}`}
+                            checked={selected}
+                            onCheckedChange={() =>
+                              setEndSession((current) => {
+                                if (!current) return current;
+                                const payerNames = current.payerNames.includes(name)
+                                  ? current.payerNames.filter((payer) => payer !== name)
+                                  : [...current.payerNames, name];
+                                return { ...current, payerNames, payerTeam: null };
+                              })
+                            }
+                            aria-label={`${selected ? "Remove" : "Add"} ${name} as payer`}
+                            className="h-5 w-5 rounded-md border-border bg-background shadow-none focus-visible:ring-2 focus-visible:ring-felt focus-visible:ring-offset-2 data-[state=checked]:border-felt data-[state=checked]:bg-felt data-[state=checked]:text-primary-foreground"
+                          />
+                        </span>
+                      </div>
+                    );
+                  })}
+                  {endSession?.playerNames.length === 0 ? (
+                    <p className="p-3 text-sm text-destructive">No payer names are available.</p>
+                  ) : null}
+                </div>
+              </section>
+
+              {closingAmount === 0 ? (
+                <p className="rounded-xl border border-felt/25 bg-felt/10 p-3 text-sm text-felt">
+                  No payment is due. This session will be settled automatically.
+                </p>
+              ) : (
+                <section className="space-y-2.5">
+                  <div className="flex items-end justify-between gap-3">
+                    <Label className="text-xs font-semibold uppercase tracking-[0.1em] text-muted-foreground">
+                      Settlement mode
+                    </Label>
+                    <span className="text-xs font-medium text-felt">
+                      {endSession?.paymentMethod === "CASH"
+                        ? "Cash"
+                        : endSession?.paymentMethod === "UPI"
+                          ? "UPI"
+                          : endSession?.paymentMethod === "CARD"
+                            ? "Card"
+                            : "Add to dues"}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    {[
+                      { value: "UNPAID", label: "Add to dues", icon: ReceiptText },
+                      { value: "UPI", label: "UPI", icon: Smartphone },
+                      { value: "CASH", label: "Cash", icon: Banknote },
+                    ].map((method) => {
+                      const selected = (endSession?.paymentMethod ?? "UNPAID") === method.value;
+                      const MethodIcon = method.icon;
+                      return (
+                        <button
+                          key={method.value}
+                          type="button"
+                          aria-pressed={selected}
+                          onClick={() =>
+                            setEndSession((current) =>
+                              current
+                                ? {
+                                    ...current,
+                                    paymentMethod:
+                                      method.value === "UNPAID"
+                                        ? null
+                                        : (method.value as "CASH" | "UPI" | "CARD"),
+                                  }
+                                : current,
+                            )
+                          }
+                          className={cn(
+                            "flex min-h-16 flex-col items-center justify-center rounded-xl border px-2 py-2 text-center transition-colors",
+                            selected
+                              ? "border-felt/50 bg-felt/10 text-felt"
+                              : "border-border bg-background/60 text-muted-foreground hover:text-foreground",
+                          )}
+                        >
+                          <MethodIcon className="mb-1.5 h-4 w-4" aria-hidden="true" />
+                          <span className="text-xs font-semibold">{method.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </section>
+              )}
             </div>
-            <AlertDialogFooter>
-              <AlertDialogCancel disabled={isEndingSession}>Go back</AlertDialogCancel>
+            <AlertDialogFooter className="shrink-0 flex-col gap-2 border-t border-border/80 bg-background p-3 sm:flex-col sm:space-x-0 sm:p-4">
               <AlertDialogAction
+                className="min-h-12 w-full gap-2 rounded-xl text-sm font-bold"
                 loading={isEndingSession}
                 loadingText="Closing session…"
+                disabled={
+                  (closingAmount > 0 && !endSession?.payerNames.length) ||
+                  closingDiscountBasisPoints === null
+                }
                 onClick={(event) => {
                   event.preventDefault();
-                  if (!endSession?.payerName.trim()) {
-                    setError("Enter the name of the person responsible for the bill.");
+                  if (
+                    (closingAmount > 0 && !endSession?.payerNames.length) ||
+                    closingDiscountBasisPoints === null
+                  )
                     return;
-                  }
                   void closeCurrentSession();
                 }}
               >
-                Stop clock & free table
+                <LockKeyhole className="h-4 w-4" aria-hidden="true" />
+                {closingAmount === 0
+                  ? "Stop clock & close table"
+                  : endSession?.paymentMethod
+                    ? `Stop clock & record ${endSession.paymentMethod.toLowerCase()}`
+                    : "Stop clock & add to dues"}
+                {closingAmount > 0 ? ` · ${money(closingAmount)}` : ""}
               </AlertDialogAction>
+              <AlertDialogCancel
+                className="min-h-9 w-full border-0 bg-transparent text-muted-foreground shadow-none hover:bg-surface"
+                disabled={isEndingSession}
+              >
+                Keep playing
+              </AlertDialogCancel>
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
@@ -1695,76 +3034,228 @@ export default function SupervisorPage() {
             if (!open && !isRecordingPayment) setPaymentEntry(null);
           }}
         >
-          <AlertDialogContent className="max-h-[90dvh] w-[calc(100%-1.5rem)] max-w-md overflow-y-auto rounded-2xl">
-            <AlertDialogHeader>
-              <AlertDialogTitle>Settle unpaid session</AlertDialogTitle>
-              <AlertDialogDescription>
-                Record full payment for this completed session. The amount and duration already
-                saved to the ledger will not change.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <div className="space-y-4 py-2">
-              {paymentEntryDetails ? (
-                <div className="rounded-xl border border-felt/25 bg-felt/10 p-4">
-                  <p className="text-sm text-muted-foreground">Outstanding amount</p>
-                  <p className="mt-1 text-2xl font-bold text-felt">
-                    {money(paymentEntryDetails.amount)}
-                  </p>
+          <AlertDialogContent className="flex max-h-[92dvh] w-[calc(100%-1rem)] max-w-lg flex-col gap-0 overflow-hidden rounded-3xl border-border/80 p-0 shadow-2xl">
+            <AlertDialogHeader className="shrink-0 border-b border-border/80 p-4 pr-12 text-left sm:p-5">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <AlertDialogTitle className="text-base sm:text-lg">
+                    Record payment
+                  </AlertDialogTitle>
+                  <AlertDialogDescription className="mt-1">
+                    {paymentEntryDetails && "tableName" in paymentEntryDetails
+                      ? `Table ${paymentEntryDetails.tableName} · ${paymentEntryDetails.startTime}${paymentEntryDetails.endTime ? `–${paymentEntryDetails.endTime}` : ""}`
+                      : paymentEntryDetails && "table" in paymentEntryDetails
+                        ? `Table ${paymentEntryDetails.table?.shortName ?? "—"} · ${time(paymentEntryDetails.slotStart)}–${time(paymentEntryDetails.slotEnd)}`
+                        : "Settle the outstanding table balance."}
+                  </AlertDialogDescription>
                 </div>
+                <div className="shrink-0 text-right">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                    Amount due
+                  </p>
+                  <p className="text-2xl font-bold text-felt">{money(settlementNetAmount)}</p>
+                </div>
+              </div>
+              {paymentEntryDetails && "players" in paymentEntryDetails ? (
+                <p className="mt-2 truncate text-xs text-muted-foreground">
+                  {paymentEntryDetails.gameLabel ||
+                    gameFormatDescription(paymentEntryDetails.gameFormat) ||
+                    paymentEntryDetails.source}
+                  {" · "}
+                  {paymentEntryDetails.players.map((player) => player.name).join(" · ")}
+                </p>
+              ) : paymentEntryDetails && "customerName" in paymentEntryDetails ? (
+                <p className="mt-2 truncate text-xs text-muted-foreground">
+                  {paymentEntryDetails.customerName}
+                </p>
               ) : null}
-              <div className="space-y-2">
-                <Label htmlFor="settlement-payer">Paid by</Label>
+            </AlertDialogHeader>
+            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain p-4 sm:p-5">
+              {paymentEntryDetails ? (
+                <section className="space-y-3 rounded-2xl border border-border/80 bg-surface/70 p-3 sm:p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    {settlementDiscountAllowed ? (
+                      <DiscountToggle
+                        id="settlement-discount-toggle"
+                        checked={Boolean(paymentEntry?.applyDiscount)}
+                        onCheckedChange={(checked) =>
+                          setPaymentEntry((current) =>
+                            current ? { ...current, applyDiscount: checked } : current,
+                          )
+                        }
+                        label="Apply supervisor discount"
+                      />
+                    ) : (
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold">Closeout discount applied</p>
+                        <p className="mt-0.5 text-xs text-muted-foreground">
+                          {paymentEntryCloseoutDiscount}% discount is already included.
+                        </p>
+                      </div>
+                    )}
+                    <span className="shrink-0 text-right text-sm">
+                      {settlementDiscountAmount > 0 ? (
+                        <>
+                          <span className="text-muted-foreground line-through">
+                            {money(settlementGrossAmount)}
+                          </span>
+                          <strong className="ml-2 text-felt">{money(settlementNetAmount)}</strong>
+                        </>
+                      ) : (
+                        <strong className="text-felt">{money(settlementGrossAmount)}</strong>
+                      )}
+                    </span>
+                  </div>
+                  {paymentEntry?.applyDiscount && settlementDiscountAllowed ? (
+                    <>
+                      <div
+                        className="flex flex-wrap gap-2"
+                        role="group"
+                        aria-label="Discount presets"
+                      >
+                        {[
+                          { label: "15% off", value: "15" },
+                          { label: "25% off", value: "25" },
+                          { label: "Waive 100%", value: "100" },
+                        ].map((preset) => (
+                          <button
+                            key={preset.value}
+                            type="button"
+                            aria-pressed={paymentEntry.discountPercent === preset.value}
+                            onClick={() =>
+                              setPaymentEntry((current) =>
+                                current ? { ...current, discountPercent: preset.value } : current,
+                              )
+                            }
+                            className={cn(
+                              "min-h-9 rounded-xl border px-3 text-xs font-semibold transition-colors",
+                              paymentEntry.discountPercent === preset.value
+                                ? "border-felt/60 bg-felt text-primary-foreground"
+                                : "border-border bg-background/70 text-muted-foreground hover:text-foreground",
+                            )}
+                          >
+                            {preset.label}
+                          </button>
+                        ))}
+                      </div>
+                      <div className="grid grid-cols-[minmax(0,8rem)_1fr] items-center gap-3">
+                        <Field
+                          id="settlement-discount"
+                          label="Discount (%)"
+                          error={settlementDiscountError}
+                        >
+                          <Input
+                            id="settlement-discount"
+                            type="number"
+                            inputMode="decimal"
+                            min="0"
+                            max="100"
+                            step="0.01"
+                            className="min-h-10 text-right"
+                            value={paymentEntry.discountPercent}
+                            onChange={(event) =>
+                              setPaymentEntry((current) =>
+                                current
+                                  ? { ...current, discountPercent: event.target.value }
+                                  : current,
+                              )
+                            }
+                            {...fieldA11yProps("settlement-discount", settlementDiscountError)}
+                          />
+                        </Field>
+                        <p className="min-w-0 rounded-lg bg-background/75 px-3 py-2 text-right text-xs text-muted-foreground">
+                          {money(settlementGrossAmount)} − {money(settlementDiscountAmount)} ={" "}
+                          <strong className="text-felt">{money(settlementNetAmount)}</strong>
+                        </p>
+                      </div>
+                    </>
+                  ) : null}
+                </section>
+              ) : null}
+              <Field id="settlement-payer" label="Paid by" required>
                 <Input
                   id="settlement-payer"
                   autoComplete="name"
                   maxLength={120}
+                  placeholder="Enter payer name"
                   value={paymentEntry?.payerName ?? ""}
+                  required
                   onChange={(event) =>
                     setPaymentEntry((current) =>
                       current ? { ...current, payerName: event.target.value } : current,
                     )
                   }
                 />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="booking-payment-method">Payment method</Label>
-                <select
-                  id="booking-payment-method"
-                  value={paymentEntry?.paymentMethod ?? "CASH"}
-                  onChange={(event) =>
-                    setPaymentEntry((current) =>
-                      current
-                        ? {
-                            ...current,
-                            paymentMethod: event.target.value as "CASH" | "UPI" | "CARD",
-                          }
-                        : current,
-                    )
-                  }
-                  className="flex min-h-11 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                >
-                  <option value="CASH">Cash</option>
-                  <option value="UPI">UPI</option>
-                  <option value="CARD">Card</option>
-                </select>
-              </div>
+              </Field>
+              <section className="space-y-2.5">
+                <Label className="text-xs font-semibold uppercase tracking-[0.1em] text-muted-foreground">
+                  Payment method
+                </Label>
+                <div className="grid grid-cols-3 gap-2">
+                  {(
+                    [
+                      { value: "CASH", label: "Cash", icon: Banknote },
+                      { value: "UPI", label: "UPI", icon: Smartphone },
+                      { value: "CARD", label: "Card", icon: CreditCard },
+                    ] as const
+                  ).map((method) => {
+                    const MethodIcon = method.icon;
+                    const selected = paymentEntry?.paymentMethod === method.value;
+                    return (
+                      <button
+                        key={method.value}
+                        type="button"
+                        aria-pressed={selected}
+                        onClick={() =>
+                          setPaymentEntry((current) =>
+                            current ? { ...current, paymentMethod: method.value } : current,
+                          )
+                        }
+                        className={cn(
+                          "flex min-h-16 flex-col items-center justify-center gap-1.5 rounded-xl border text-xs font-semibold transition-colors",
+                          selected
+                            ? "border-felt/50 bg-felt/10 text-felt"
+                            : "border-border bg-background/60 text-muted-foreground hover:text-foreground",
+                        )}
+                      >
+                        <MethodIcon className="h-4 w-4" aria-hidden="true" />
+                        <span>{method.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </section>
             </div>
-            <AlertDialogFooter>
-              <AlertDialogCancel disabled={isRecordingPayment}>Go back</AlertDialogCancel>
+            <AlertDialogFooter className="shrink-0 flex-col gap-2 border-t border-border/80 bg-background p-3 sm:flex-col sm:space-x-0 sm:p-4">
               <AlertDialogAction
+                className="min-h-12 w-full rounded-xl text-sm font-bold"
                 loading={isRecordingPayment}
                 loadingText="Recording payment…"
+                disabled={
+                  !paymentEntry?.paymentMethod ||
+                  settlementDiscountBasisPoints === null ||
+                  (!settlementDiscountAllowed && settlementDiscountBasisPoints > 0)
+                }
                 onClick={(event) => {
                   event.preventDefault();
                   if (!paymentEntry?.payerName.trim()) {
                     setError("Enter the name of the person who paid.");
                     return;
                   }
+                  if (settlementDiscountBasisPoints === null) return;
+                  if (!settlementDiscountAllowed && settlementDiscountBasisPoints > 0) return;
                   void recordCurrentPayment();
                 }}
               >
-                Record payment
+                Record {paymentEntry?.paymentMethod?.toLowerCase() ?? "payment"} ·{" "}
+                {money(settlementNetAmount)}
               </AlertDialogAction>
+              <AlertDialogCancel
+                className="min-h-9 w-full border-0 bg-transparent text-muted-foreground shadow-none hover:bg-surface"
+                disabled={isRecordingPayment}
+              >
+                Cancel
+              </AlertDialogCancel>
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>

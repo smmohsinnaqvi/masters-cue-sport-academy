@@ -14,6 +14,8 @@ export type SessionPageRow = {
   customerName: string | null;
   customerPhone: string | null;
   players: unknown;
+  gameFormat: "SINGLES" | "DOUBLES" | "GROUP" | "SOLO" | null;
+  gameLabel: string | null;
   loserName: string | null;
   payerName: string | null;
   paymentMethod: "CASH" | "UPI" | "CARD" | null;
@@ -21,6 +23,12 @@ export type SessionPageRow = {
   rateSnapshot: number | null;
   durationMinutes: number | null;
   amount: number | null;
+  grossAmount: number | null;
+  discountPercent: number;
+  discountAmount: number;
+  settlementDiscountPercent: number;
+  settlementDiscountAmount: number;
+  payerShares: unknown;
   paymentStatus: "UNPAID" | "PAID";
   createdAt: string;
   table: { id: string; name: string; type: "SNOOKER" | "POOL" };
@@ -28,6 +36,8 @@ export type SessionPageRow = {
 
 export type SessionPageFilters = {
   search?: string;
+  paymentStatus?: "ALL" | "PAID" | "UNPAID";
+  tableType?: "ALL" | "SNOOKER" | "POOL";
 };
 
 export function useSessionPages(
@@ -50,6 +60,8 @@ export function useSessionPages(
   const controllerRef = useRef<AbortController | null>(null);
   const [isMobileViewport, setIsMobileViewport] = useState(false);
   const requestedSearch = filters?.search ?? "";
+  const paymentStatus = filters?.paymentStatus ?? "ALL";
+  const tableType = filters?.tableType ?? "ALL";
   const [search, setSearch] = useState(requestedSearch);
 
   useEffect(() => {
@@ -80,6 +92,12 @@ export function useSessionPages(
       try {
         const params = new URLSearchParams({ view, take: "25" });
         if (search.trim()) params.set("search", search.trim());
+        if (view === "ledger" && paymentStatus !== "ALL") {
+          params.set("payment", paymentStatus);
+        }
+        if (view === "ledger" && tableType !== "ALL") {
+          params.set("tableType", tableType);
+        }
         if (pageCursor) params.set("cursor", pageCursor);
         const response = await fetch(`/api/ledger?${params}`, {
           cache: "no-store",
@@ -117,7 +135,7 @@ export function useSessionPages(
         }
       }
     },
-    [search, view],
+    [paymentStatus, search, tableType, view],
   );
 
   useEffect(() => {

@@ -9,8 +9,10 @@ import { currentAcademySessionAction, loginAction } from "@/actions/auth-actions
 import { Button } from "@/components/ui/button";
 import { PageLoading } from "@/components/layout/page-state";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Field } from "@/components/ui/field";
+import { fieldA11yProps } from "@/components/ui/field-utils";
 import type { UserRole } from "@/lib/auth";
+import { emailSchema } from "@/lib/form-validation";
 
 function LoginContent() {
   const router = useRouter();
@@ -22,6 +24,8 @@ function LoginContent() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [emailError, setEmailError] = useState("");
+  const [passwordError, setPasswordError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
@@ -34,9 +38,22 @@ function LoginContent() {
     event.preventDefault();
     if (isSubmitting) return;
     setError("");
+    const validEmail = emailSchema.safeParse(email);
+    if (!validEmail.success) {
+      setEmailError(validEmail.error.issues[0]?.message ?? "Enter a valid email address.");
+      setPasswordError(password ? "" : "Enter your password.");
+      return;
+    }
+    if (!password) {
+      setEmailError("");
+      setPasswordError("Enter your password.");
+      return;
+    }
+    setEmailError("");
+    setPasswordError("");
     setIsSubmitting(true);
     try {
-      const result = await loginAction(email, password);
+      const result = await loginAction(validEmail.data, password);
       if (!result.ok) {
         setError(result.message);
         return;
@@ -96,31 +113,40 @@ function LoginContent() {
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="login-email">Email</Label>
+          <Field id="login-email" label="Email address" required error={emailError}>
             <Input
               id="login-email"
               type="email"
               value={email}
-              onChange={(event) => setEmail(event.target.value)}
+              onChange={(event) => {
+                setEmail(event.target.value);
+                setEmailError("");
+              }}
               autoComplete="username"
               disabled={isSubmitting}
               className="min-h-12"
+              required
+              maxLength={254}
+              {...fieldA11yProps("login-email", emailError)}
             />
-          </div>
+          </Field>
 
-          <div className="space-y-2">
-            <Label htmlFor="login-password">Password</Label>
+          <Field id="login-password" label="Password" required error={passwordError}>
             <Input
               id="login-password"
               type="password"
               value={password}
-              onChange={(event) => setPassword(event.target.value)}
+              onChange={(event) => {
+                setPassword(event.target.value);
+                setPasswordError("");
+              }}
               autoComplete="current-password"
               disabled={isSubmitting}
               className="min-h-12"
+              required
+              {...fieldA11yProps("login-password", passwordError)}
             />
-          </div>
+          </Field>
 
           {error ? (
             <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">

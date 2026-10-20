@@ -8,7 +8,9 @@ import { SettingsFormSkeleton } from "@/components/admin/settings-skeleton";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Field } from "@/components/ui/field";
+import { fieldA11yProps } from "@/components/ui/field-utils";
+import { ratesFormSchema } from "@/lib/form-validation";
 
 export default function RateSettingsPage() {
   const [rates, setRates] = useState({ snooker: "", pool: "" });
@@ -16,6 +18,7 @@ export default function RateSettingsPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
   useEffect(() => {
     void getAdminSettingsAction()
@@ -31,13 +34,20 @@ export default function RateSettingsPage() {
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const validation = ratesFormSchema.safeParse(rates);
+    if (!validation.success) {
+      setFieldErrors(
+        Object.fromEntries(validation.error.issues.map((issue) => [issue.path[0], issue.message])),
+      );
+      return;
+    }
+    setFieldErrors({});
     setSaving(true);
     setSaved(false);
     setError("");
     try {
       const updated = await updateHourlyRatesAction({
-        snooker: Number(rates.snooker),
-        pool: Number(rates.pool),
+        ...validation.data,
       });
       setRates({ snooker: String(updated.snooker), pool: String(updated.pool) });
       setSaved(true);
@@ -59,30 +69,45 @@ export default function RateSettingsPage() {
             <SettingsFormSkeleton />
           ) : (
             <form onSubmit={submit} className="max-w-md space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="snooker-rate">Snooker per hour (₹)</Label>
+              <Field
+                id="snooker-rate"
+                label="Snooker per hour (₹)"
+                required
+                error={fieldErrors.snooker}
+              >
                 <Input
                   id="snooker-rate"
                   type="number"
+                  inputMode="numeric"
                   min="0"
+                  max="999999999"
                   step="1"
                   value={rates.snooker}
-                  onChange={(event) => setRates({ ...rates, snooker: event.target.value })}
+                  onChange={(event) => {
+                    setRates({ ...rates, snooker: event.target.value });
+                    setFieldErrors((current) => ({ ...current, snooker: "" }));
+                  }}
                   required
+                  {...fieldA11yProps("snooker-rate", fieldErrors.snooker)}
                 />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="pool-rate">Pool per hour (₹)</Label>
+              </Field>
+              <Field id="pool-rate" label="Pool per hour (₹)" required error={fieldErrors.pool}>
                 <Input
                   id="pool-rate"
                   type="number"
+                  inputMode="numeric"
                   min="0"
+                  max="999999999"
                   step="1"
                   value={rates.pool}
-                  onChange={(event) => setRates({ ...rates, pool: event.target.value })}
+                  onChange={(event) => {
+                    setRates({ ...rates, pool: event.target.value });
+                    setFieldErrors((current) => ({ ...current, pool: "" }));
+                  }}
                   required
+                  {...fieldA11yProps("pool-rate", fieldErrors.pool)}
                 />
-              </div>
+              </Field>
               <Button type="submit" disabled={saving}>
                 {saving ? "Saving…" : "Save rates"}
               </Button>

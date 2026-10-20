@@ -14,7 +14,9 @@ import { SettingsListSkeleton } from "@/components/admin/settings-skeleton";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Field } from "@/components/ui/field";
+import { fieldA11yProps } from "@/components/ui/field-utils";
+import { tournamentFormSchema } from "@/lib/form-validation";
 
 type Tournament = {
   id: string;
@@ -33,6 +35,7 @@ export default function TournamentSettingsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
   async function loadItems() {
     try {
@@ -52,18 +55,19 @@ export default function TournamentSettingsPage() {
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!form.title.trim() || !form.date) {
-      setError("Tournament name and date are required.");
+    const validation = tournamentFormSchema.safeParse(form);
+    if (!validation.success) {
+      setFieldErrors(
+        Object.fromEntries(validation.error.issues.map((issue) => [issue.path[0], issue.message])),
+      );
       return;
     }
+    setFieldErrors({});
     setSaving(true);
     setError("");
     try {
       const input = {
-        title: form.title,
-        date: form.date,
-        entryFee: Number(form.entryFee || 0),
-        prizePool: Number(form.prizePool || 0),
+        ...validation.data,
       };
       if (editingId) await updateTournamentAction({ ...input, id: editingId });
       else await createTournamentAction(input);
@@ -106,38 +110,63 @@ export default function TournamentSettingsPage() {
         </CardHeader>
         <CardContent className="space-y-6">
           <form onSubmit={submit} className="grid gap-4 md:grid-cols-4">
-            <Field label="Name">
+            <Field id="tournament-title" label="Name" required error={fieldErrors.title}>
               <Input
+                id="tournament-title"
                 value={form.title}
-                onChange={(event) => setForm({ ...form, title: event.target.value })}
+                onChange={(event) => {
+                  setForm({ ...form, title: event.target.value });
+                  setFieldErrors((current) => ({ ...current, title: "" }));
+                }}
                 placeholder="Tournament name"
+                maxLength={120}
                 required
+                {...fieldA11yProps("tournament-title", fieldErrors.title)}
               />
             </Field>
-            <Field label="Date">
+            <Field id="tournament-date" label="Date" required error={fieldErrors.date}>
               <Input
+                id="tournament-date"
                 type="date"
                 value={form.date}
-                onChange={(event) => setForm({ ...form, date: event.target.value })}
+                onChange={(event) => {
+                  setForm({ ...form, date: event.target.value });
+                  setFieldErrors((current) => ({ ...current, date: "" }));
+                }}
                 required
+                {...fieldA11yProps("tournament-date", fieldErrors.date)}
               />
             </Field>
-            <Field label="Entry fee (₹)">
+            <Field id="tournament-entry-fee" label="Entry fee (₹)" error={fieldErrors.entryFee}>
               <Input
+                id="tournament-entry-fee"
                 type="number"
+                inputMode="numeric"
                 min="0"
+                max="999999999"
                 step="1"
                 value={form.entryFee}
-                onChange={(event) => setForm({ ...form, entryFee: event.target.value })}
+                onChange={(event) => {
+                  setForm({ ...form, entryFee: event.target.value });
+                  setFieldErrors((current) => ({ ...current, entryFee: "" }));
+                }}
+                {...fieldA11yProps("tournament-entry-fee", fieldErrors.entryFee)}
               />
             </Field>
-            <Field label="Prize pool (₹)">
+            <Field id="tournament-prize-pool" label="Prize pool (₹)" error={fieldErrors.prizePool}>
               <Input
+                id="tournament-prize-pool"
                 type="number"
+                inputMode="numeric"
                 min="0"
+                max="999999999"
                 step="1"
                 value={form.prizePool}
-                onChange={(event) => setForm({ ...form, prizePool: event.target.value })}
+                onChange={(event) => {
+                  setForm({ ...form, prizePool: event.target.value });
+                  setFieldErrors((current) => ({ ...current, prizePool: "" }));
+                }}
+                {...fieldA11yProps("tournament-prize-pool", fieldErrors.prizePool)}
               />
             </Field>
             <div className="flex gap-2 md:col-span-4">
@@ -199,15 +228,6 @@ export default function TournamentSettingsPage() {
         </CardContent>
       </Card>
     </RoleGate>
-  );
-}
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="space-y-2">
-      <Label>{label}</Label>
-      {children}
-    </div>
   );
 }
 

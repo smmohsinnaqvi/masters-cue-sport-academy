@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { BookingRecord } from "@/types/operations";
 import { academyDateKeyForOffset, academyDateOffset } from "@/lib/academy-time";
 import { normalizeBooking } from "@/lib/real-data";
@@ -15,6 +15,7 @@ export function useLiveBookings(
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const extensionTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const loadRef = useRef<(() => Promise<void>) | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -23,7 +24,8 @@ export function useLiveBookings(
       extensionTimer.current = null;
     }
 
-    async function load() {
+    async function load(throwOnError = false) {
+      if (mounted) setLoading(true);
       try {
         const search = new URLSearchParams({ date: selectedDateKey, days: String(days) });
         const response = await fetch(`/api/tables/availability?${search.toString()}`, {
@@ -90,11 +92,13 @@ export function useLiveBookings(
           setError(reason instanceof Error ? reason.message : "Unable to load booking data");
           setBookings([]);
         }
+        if (throwOnError) throw reason;
       } finally {
         if (mounted) setLoading(false);
       }
     }
 
+    loadRef.current = () => load(true);
     setLoading(true);
     setError(null);
     setBookings([]);
@@ -109,10 +113,12 @@ export function useLiveBookings(
       .subscribe();
     return () => {
       mounted = false;
+      loadRef.current = null;
       clearExtensionTimer();
       void channel.unsubscribe();
     };
   }, [days, selectedDateKey, selectedDateOffset]);
 
-  return { bookings, loading, error };
+  const refresh = useCallback(() => loadRef.current?.() ?? Promise.resolve(), []);
+  return { bookings, loading, error, refresh };
 }

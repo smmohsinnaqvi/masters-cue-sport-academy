@@ -61,8 +61,9 @@ export default async function AdminRevenuePage({ searchParams }: RevenuePageProp
     paidAt: { gte: start, lt: end },
   };
 
-  const [dailyRows, sourceGroups, tableGroups, tables, unpaid, paidCount] = await Promise.all([
-    prisma.$queryRaw<DailyRevenueRow[]>(Prisma.sql`
+  const [dailyRows, sourceGroups, tableGroups, tables, unpaid, paidCount, paidTotals] =
+    await Promise.all([
+      prisma.$queryRaw<DailyRevenueRow[]>(Prisma.sql`
       SELECT
         TO_CHAR(("paid_at" AT TIME ZONE 'Asia/Kolkata')::date, 'YYYY-MM-DD') AS day,
         "source"::text AS source,
@@ -76,37 +77,43 @@ export default async function AdminRevenuePage({ searchParams }: RevenuePageProp
       GROUP BY day, "source"
       ORDER BY day ASC
     `),
-    prisma.session.groupBy({
-      by: ["source"],
-      where,
-      _sum: { amount: true },
-      _count: { _all: true },
-    }),
-    prisma.session.groupBy({
-      by: ["tableId"],
-      where,
-      _sum: { amount: true },
-      _count: { _all: true },
-      orderBy: { _sum: { amount: "desc" } },
-    }),
-    prisma.table.findMany({ select: { id: true, name: true } }),
-    prisma.session.aggregate({
-      where: {
-        source: { in: ["ONLINE", "WALKIN"] },
-        status: "COMPLETED",
-        paymentStatus: "UNPAID",
-      },
-      _sum: { amount: true },
-      _count: { _all: true },
-    }),
-    prisma.session.count({ where }),
-  ]);
+      prisma.session.groupBy({
+        by: ["source"],
+        where,
+        _sum: { amount: true },
+        _count: { _all: true },
+      }),
+      prisma.session.groupBy({
+        by: ["tableId"],
+        where,
+        _sum: { amount: true },
+        _count: { _all: true },
+        orderBy: { _sum: { amount: "desc" } },
+      }),
+      prisma.table.findMany({ select: { id: true, name: true } }),
+      prisma.session.aggregate({
+        where: {
+          source: { in: ["ONLINE", "WALKIN"] },
+          status: "COMPLETED",
+          paymentStatus: "UNPAID",
+        },
+        _sum: { amount: true },
+        _count: { _all: true },
+      }),
+      prisma.session.count({ where }),
+      prisma.session.aggregate({
+        where,
+        _sum: { discountAmount: true, settlementDiscountAmount: true },
+      }),
+    ]);
 
   const sourceAmount = (source: "WALKIN" | "ONLINE") =>
     sourceGroups.find((group) => group.source === source)?._sum.amount ?? 0;
   const walkInRevenue = sourceAmount("WALKIN");
   const onlineRevenue = sourceAmount("ONLINE");
   const totalRevenue = walkInRevenue + onlineRevenue;
+  const discountsGiven =
+    (paidTotals._sum.discountAmount ?? 0) + (paidTotals._sum.settlementDiscountAmount ?? 0);
   const dailyMap = new Map<string, { walkIn: number; online: number }>();
   for (const row of dailyRows) {
     const current = dailyMap.get(row.day) ?? { walkIn: 0, online: 0 };
@@ -170,7 +177,7 @@ export default async function AdminRevenuePage({ searchParams }: RevenuePageProp
           ))}
         </nav>
 
-        <section className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+        <section className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6">
           <RevenueMetric
             icon={CircleDollarSign}
             label="Total revenue"
@@ -178,6 +185,12 @@ export default async function AdminRevenuePage({ searchParams }: RevenuePageProp
           />
           <RevenueMetric icon={Users} label="Walk-in play" value={money(walkInRevenue)} />
           <RevenueMetric icon={Table2} label="Online bookings" value={money(onlineRevenue)} />
+          <RevenueMetric
+            icon={CircleDollarSign}
+            label="Discounts given"
+            value={money(discountsGiven)}
+            note="Paid sessions · selected period"
+          />
           <RevenueMetric
             icon={Coffee}
             label="Cafe"

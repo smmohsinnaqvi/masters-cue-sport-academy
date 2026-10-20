@@ -7,7 +7,7 @@ The application supports:
 
 - Public table availability and online bookings.
 - Supervisor-managed walk-ins.
-- A mobile-first supervisor floor with timed walk-in blocks, online booking start, and settlement.
+- A mobile-first supervisor floor with Solo, Singles, Doubles, and Group walk-ins, flexible holds, online booking start, and settlement.
 - Searchable session ledger and separate unpaid-dues view.
 - Admin revenue reporting for paid table sessions.
 - Online bookings, walk-ins, and maintenance blocks in one authoritative
@@ -172,11 +172,13 @@ new bookings.
 Online booking requests expire after 30 minutes unless staff confirm or decline
 them. Confirmed bookings remain reserved until a supervisor starts them at or
 after the scheduled start time; unstarted bookings become no-shows after their
-reserved time ends. Walk-ins use a selected 1-hour, 1.5-hour, 2-hour, or 3-hour
-block, capped at the next online booking or 11 PM. Supervisors can explicitly
-extend a walk-in by 30 minutes only when that full extension fits before the
-next booking and closing. An overdue walk-in remains in play and is billed by
-actual elapsed time until staff closes it.
+reserved time ends. Online bookings are limited to academy hours (10 AM–11 PM), but walk-ins can
+start at any time. Supervisors can choose an open-ended hold, a preset, or a
+custom hold in 30-minute increments (30 minutes to 24 hours). Open-ended and
+timed holds respect the next online booking; an open hold without a next booking
+remains active until staff closes it. Timed holds can be extended by 30 minutes
+when that full extension fits before the next booking. Holds only control table
+availability: the final charge is based on completed minutes actually played.
 
 The database also contains a PostgreSQL exclusion constraint to prevent
 overlapping active sessions on the same table. The SQL is in:
@@ -189,16 +191,43 @@ Online bookings snapshot the table rate and reserved-slot charge when created.
 When staff starts a confirmed online booking at or after its start time, or
 starts a walk-in, the session is recorded as `ONGOING`. When staff closes a live
 online booking early, or stops a walk-in, the final amount is recalculated from
-the actual elapsed minutes and the saved hourly rate.
-Closing requires the responsible payer's name and either records a full
-payment or leaves the amount unpaid. Completed unpaid sessions appear in the
-Unpaid view and can be settled later without changing their recorded charge.
+the actual elapsed whole minutes and the saved hourly rate. A partial minute is
+not billed; a session closed before its first full minute has a zero charge.
+Walk-in player lists support solo practice, singles (two players), doubles (two
+teams of two), and group games (three to six players), with optional routine or
+game labels for solo and group play.
+
+At closeout, supervisors can apply a 0-100% discount (up to two decimal places) and see the gross charge,
+discount, and final amount before saving. One selected player is assigned the
+whole discounted amount; multiple selected players split it equally, with any
+whole-rupee remainder assigned in selection order. A zero-amount session is
+settled automatically. Other sessions can be recorded as paid by cash, UPI, or
+card, or left unpaid. Completed unpaid sessions appear in the Unpaid view.
+When collecting a due, a supervisor may apply an additional 0-100% discount
+only if the session was not discounted at closeout. The settlement discount
+applies to the current outstanding balance; the original gross charge and
+separate closeout/settlement discount amounts remain available for audit, while
+the session amount and revenue record the net amount actually collected.
 
 `payment_status` records `PAID` or `UNPAID`; `payment_method` records `CASH`,
-`UPI`, or `CARD` independently. `payer_name` and `paid_at` are stored with the
-session to support later revenue reports. The additive
+`UPI`, or `CARD` independently. `payer_name`, `payer_shares`, `gross_amount`,
+`discount_percent_basis_points`, `discount_amount`,
+`settlement_discount_percent_basis_points`, `settlement_discount_amount`, and
+`paid_at` are stored with the session to support later ledger and revenue
+reports. The additive
 `0006_session_payments` migration preserves legacy amounts and backfills
-existing payment method/status data.
+existing payment method/status data. The `0007_walkin_session_billing`
+migration adds the game and discount breakdown fields and backfills existing
+gross amounts. `0008_settlement_discounts` converts closeout percentages to
+hundredths-of-a-percent precision and adds settlement discount audit fields.
+`0009_walkin_modes` adds Solo as a persisted game format and records whether a
+walk-in uses an open-ended hold. Apply committed migrations with
+`npx prisma migrate deploy` before deploying code that reads the new columns.
+
+Booking phone numbers must be valid Indian mobile numbers; the form accepts
+standard separators and an optional `+91` prefix, and saves the normalized
+number. Shared form controls use mobile-sized touch targets and display
+field-level validation messages.
 
 The supervisor floor displays compact per-table session and upcoming-booking
 cards, an elapsed timer and current estimated charge, and a closeout dialog.
@@ -286,6 +315,12 @@ Run TypeScript validation:
 
 ```powershell
 npx tsc --noEmit
+```
+
+Run focused billing boundary and split tests:
+
+```powershell
+npm test
 ```
 
 Format the project:

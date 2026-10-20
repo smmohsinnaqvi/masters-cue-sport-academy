@@ -5,6 +5,11 @@ import { revalidateTag } from "next/cache";
 
 import { prisma } from "@/lib/prisma";
 import { requireAcademyRole } from "@/lib/supabase-auth-server";
+import {
+  cafeteriaItemFormSchema,
+  ratesFormSchema,
+  tournamentFormSchema,
+} from "@/lib/form-validation";
 
 const PUBLIC_CONTENT_TAG = "public-academy-content";
 
@@ -12,17 +17,12 @@ function revalidatePublicContent() {
   revalidateTag(PUBLIC_CONTENT_TAG);
 }
 
-function requiredText(value: string, label: string) {
+function requiredText(value: unknown, label: string) {
+  if (typeof value !== "string") throw new Error(`${label} must be text`);
   const normalized = value.trim();
   if (!normalized) throw new Error(`${label} is required`);
+  if (normalized.length > 120) throw new Error(`${label} must be 120 characters or fewer`);
   return normalized;
-}
-
-function nonNegativeAmount(value: number, label: string) {
-  if (!Number.isSafeInteger(value) || value < 0) {
-    throw new Error(`${label} must be a non-negative whole number`);
-  }
-  return value;
 }
 
 function tournamentDate(value: string) {
@@ -60,12 +60,21 @@ export async function createTournamentAction(input: {
   prizePool: number;
 }) {
   await requireAcademyRole("admin");
+  if (!input || typeof input !== "object") throw new Error("Tournament details are required");
+  const validation = tournamentFormSchema.safeParse({
+    ...input,
+    entryFee: String(input.entryFee),
+    prizePool: String(input.prizePool),
+  });
+  if (!validation.success) {
+    throw new Error(validation.error.issues[0]?.message ?? "Check tournament details");
+  }
   const tournament = await prisma.tournament.create({
     data: {
-      title: requiredText(input.title, "Tournament name"),
-      date: tournamentDate(input.date),
-      entryFee: nonNegativeAmount(input.entryFee, "Entry fee"),
-      prizePool: nonNegativeAmount(input.prizePool, "Prize pool"),
+      title: validation.data.title,
+      date: tournamentDate(validation.data.date),
+      entryFee: validation.data.entryFee,
+      prizePool: validation.data.prizePool,
     },
   });
   revalidatePublicContent();
@@ -80,13 +89,22 @@ export async function updateTournamentAction(input: {
   prizePool: number;
 }) {
   await requireAcademyRole("admin");
+  if (!input || typeof input !== "object") throw new Error("Tournament details are required");
+  const validation = tournamentFormSchema.safeParse({
+    ...input,
+    entryFee: String(input.entryFee),
+    prizePool: String(input.prizePool),
+  });
+  if (!validation.success) {
+    throw new Error(validation.error.issues[0]?.message ?? "Check tournament details");
+  }
   const tournament = await prisma.tournament.update({
     where: { id: requiredText(input.id, "Tournament ID") },
     data: {
-      title: requiredText(input.title, "Tournament name"),
-      date: tournamentDate(input.date),
-      entryFee: nonNegativeAmount(input.entryFee, "Entry fee"),
-      prizePool: nonNegativeAmount(input.prizePool, "Prize pool"),
+      title: validation.data.title,
+      date: tournamentDate(validation.data.date),
+      entryFee: validation.data.entryFee,
+      prizePool: validation.data.prizePool,
     },
   });
   revalidatePublicContent();
@@ -105,11 +123,20 @@ export async function createCafeteriaItemAction(input: {
   price: number;
 }) {
   await requireAcademyRole("admin");
+  if (!input || typeof input !== "object") throw new Error("Cafeteria item details are required");
+  const validation = cafeteriaItemFormSchema.safeParse({
+    ...input,
+    note: input.note ?? "",
+    price: String(input.price),
+  });
+  if (!validation.success) {
+    throw new Error(validation.error.issues[0]?.message ?? "Check cafeteria item details");
+  }
   const item = await prisma.cafeteriaItem.create({
     data: {
-      name: requiredText(input.name, "Item name"),
-      note: input.note?.trim() || null,
-      price: nonNegativeAmount(input.price, "Price"),
+      name: validation.data.name,
+      note: validation.data.note || null,
+      price: validation.data.price,
     },
   });
   revalidatePublicContent();
@@ -123,12 +150,21 @@ export async function updateCafeteriaItemAction(input: {
   price: number;
 }) {
   await requireAcademyRole("admin");
+  if (!input || typeof input !== "object") throw new Error("Cafeteria item details are required");
+  const validation = cafeteriaItemFormSchema.safeParse({
+    ...input,
+    note: input.note ?? "",
+    price: String(input.price),
+  });
+  if (!validation.success) {
+    throw new Error(validation.error.issues[0]?.message ?? "Check cafeteria item details");
+  }
   const item = await prisma.cafeteriaItem.update({
     where: { id: requiredText(input.id, "Item ID") },
     data: {
-      name: requiredText(input.name, "Item name"),
-      note: input.note?.trim() || null,
-      price: nonNegativeAmount(input.price, "Price"),
+      name: validation.data.name,
+      note: validation.data.note || null,
+      price: validation.data.price,
     },
   });
   revalidatePublicContent();
@@ -143,8 +179,15 @@ export async function deleteCafeteriaItemAction(id: string) {
 
 export async function updateHourlyRatesAction(rates: { snooker: number; pool: number }) {
   await requireAcademyRole("admin");
-  const snooker = nonNegativeAmount(rates.snooker, "Snooker rate");
-  const pool = nonNegativeAmount(rates.pool, "Pool rate");
+  if (!rates || typeof rates !== "object") throw new Error("Table rates are required");
+  const validation = ratesFormSchema.safeParse({
+    snooker: String(rates.snooker),
+    pool: String(rates.pool),
+  });
+  if (!validation.success) {
+    throw new Error(validation.error.issues[0]?.message ?? "Check table rates");
+  }
+  const { snooker, pool } = validation.data;
   await prisma.$transaction(async (tx) => {
     const [snookerCount, poolCount] = await Promise.all([
       tx.table.count({ where: { type: "SNOOKER" } }),

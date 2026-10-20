@@ -6,7 +6,7 @@ import Image from "next/image";
 import { LogOut, Menu } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
-import logoImage from "@/assets/mcsa-logo.jpeg";
+import logoImage from "@/assets/MCSA-new-dark.png";
 
 import { currentAcademySessionAction, logoutAction } from "@/actions/auth-actions";
 import { Button } from "@/components/ui/button";
@@ -68,7 +68,7 @@ export function SiteHeader() {
           aria-label={`${ACADEMY.name} home`}
           className="flex min-h-12 min-w-0 items-center gap-2.5 pr-1 sm:gap-3"
         >
-          <span className="flex h-11 w-[72px] shrink-0 items-center justify-center overflow-hidden rounded-md bg-white p-1 sm:h-12 sm:w-[82px]">
+          <span className="flex h-11 w-[72px] shrink-0 items-center justify-center overflow-hidden rounded-md bg-black p-1 sm:h-12 sm:w-[82px]">
             <Image
               src={logoImage}
               alt=""

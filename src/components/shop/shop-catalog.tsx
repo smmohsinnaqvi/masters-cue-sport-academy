@@ -44,6 +44,8 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { Field } from "@/components/ui/field";
+import { fieldA11yProps } from "@/components/ui/field-utils";
 import {
   Dialog,
   DialogContent,
@@ -55,6 +57,14 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { shopProductFormSchema } from "@/lib/form-validation";
 
 type EditorState = { product: ShopProductView | null } | null;
 
@@ -508,6 +518,7 @@ function ShopProductDialog({
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [previewError, setPreviewError] = useState("");
   const [previewUrl, setPreviewUrl] = useState(product?.imageUrl ?? "");
 
@@ -526,6 +537,20 @@ function ShopProductDialog({
   async function submitProduct(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError("");
+    const validation = shopProductFormSchema.safeParse({
+      name,
+      description,
+      category,
+      price,
+      discountPercent,
+    });
+    if (!validation.success) {
+      setFieldErrors(
+        Object.fromEntries(validation.error.issues.map((issue) => [issue.path[0], issue.message])),
+      );
+      return;
+    }
+    setFieldErrors({});
     setSaving(true);
     try {
       let imagePath = product?.imagePath ?? "";
@@ -546,12 +571,8 @@ function ShopProductDialog({
       if (!imagePath) throw new Error("Add a product image before saving.");
 
       const input = {
-        name,
-        description,
+        ...validation.data,
         imagePath,
-        category,
-        price: Number(price),
-        discountPercent: Number(discountPercent),
       };
       const saved = product
         ? await updateShopProductAction(product.id, input)
@@ -587,52 +608,73 @@ function ShopProductDialog({
 
         <form onSubmit={submitProduct} className="space-y-4">
           <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_10rem]">
-            <div className="space-y-2">
-              <Label htmlFor="shop-product-name">Product name</Label>
+            <Field id="shop-product-name" label="Product name" required error={fieldErrors.name}>
               <Input
                 id="shop-product-name"
                 value={name}
-                onChange={(event) => setName(event.target.value)}
+                onChange={(event) => {
+                  setName(event.target.value);
+                  setFieldErrors((current) => ({ ...current, name: "" }));
+                }}
                 maxLength={80}
                 placeholder="Tournament cue"
                 required
-                className="min-h-11"
+                {...fieldA11yProps("shop-product-name", fieldErrors.name)}
               />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="shop-product-category">Category</Label>
-              <select
-                id="shop-product-category"
+            </Field>
+            <Field
+              id="shop-product-category"
+              label="Category"
+              required
+              error={fieldErrors.category}
+            >
+              <Select
                 value={category}
-                onChange={(event) => setCategory(event.target.value as ShopCategory)}
-                className="flex min-h-11 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                onValueChange={(value) => {
+                  setCategory(value as ShopCategory);
+                  setFieldErrors((current) => ({ ...current, category: "" }));
+                }}
               >
-                {SHOP_CATEGORIES.map(({ value, label }) => (
-                  <option key={value} value={value}>
-                    {label}
-                  </option>
-                ))}
-              </select>
-            </div>
+                <SelectTrigger
+                  id="shop-product-category"
+                  {...fieldA11yProps("shop-product-category", fieldErrors.category)}
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {SHOP_CATEGORIES.map(({ value, label }) => (
+                    <SelectItem key={value} value={value}>
+                      {label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Field>
           </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="shop-product-description">Description</Label>
+          <Field
+            id="shop-product-description"
+            label="Description"
+            required
+            error={fieldErrors.description}
+          >
             <Textarea
               id="shop-product-description"
               value={description}
-              onChange={(event) => setDescription(event.target.value)}
+              onChange={(event) => {
+                setDescription(event.target.value);
+                setFieldErrors((current) => ({ ...current, description: "" }));
+              }}
               maxLength={500}
               placeholder="Describe the feel, fit, or use of this item."
               required
-              className="min-h-24 resize-y"
+              {...fieldA11yProps("shop-product-description", fieldErrors.description)}
             />
             <p className="text-right text-xs text-muted-foreground">{description.length}/500</p>
-          </div>
+          </Field>
 
           <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-2">
-              <Label htmlFor="shop-product-price">Price (₹)</Label>
+            <Field id="shop-product-price" label="Price (₹)" required error={fieldErrors.price}>
               <Input
                 id="shop-product-price"
                 type="number"
@@ -640,13 +682,20 @@ function ShopProductDialog({
                 min="1"
                 step="1"
                 value={price}
-                onChange={(event) => setPrice(event.target.value)}
+                onChange={(event) => {
+                  setPrice(event.target.value);
+                  setFieldErrors((current) => ({ ...current, price: "" }));
+                }}
                 required
-                className="min-h-11"
+                {...fieldA11yProps("shop-product-price", fieldErrors.price)}
               />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="shop-product-discount">Discount (%)</Label>
+            </Field>
+            <Field
+              id="shop-product-discount"
+              label="Discount (%)"
+              required
+              error={fieldErrors.discountPercent}
+            >
               <Input
                 id="shop-product-discount"
                 type="number"
@@ -655,11 +704,14 @@ function ShopProductDialog({
                 max="100"
                 step="1"
                 value={discountPercent}
-                onChange={(event) => setDiscountPercent(event.target.value)}
+                onChange={(event) => {
+                  setDiscountPercent(event.target.value);
+                  setFieldErrors((current) => ({ ...current, discountPercent: "" }));
+                }}
                 required
-                className="min-h-11"
+                {...fieldA11yProps("shop-product-discount", fieldErrors.discountPercent)}
               />
-            </div>
+            </Field>
           </div>
 
           <div className="space-y-2">
