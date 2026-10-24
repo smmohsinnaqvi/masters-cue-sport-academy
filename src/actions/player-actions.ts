@@ -84,20 +84,20 @@ function isMissingTableError(error: unknown) {
 export async function getPlayerDirectoryAction(
   input: {
     search?: string;
-    filter?: "ALL" | "HAS_DUES" | "OVER_LIMIT";
+    filter?: "ALL" | "HAS_DUES" | "OVER_LIMIT" | "INACTIVE";
   } = {},
 ) {
   await requireAcademyRole("supervisor");
   const search = input.search?.trim() ?? "";
   const filter = input.filter ?? "ALL";
   if (search.length > 100) throw new Error("Player search must be 100 characters or fewer.");
-  if (!["ALL", "HAS_DUES", "OVER_LIMIT"].includes(filter)) {
+  if (!["ALL", "HAS_DUES", "OVER_LIMIT", "INACTIVE"].includes(filter)) {
     throw new Error("Choose a valid player filter.");
   }
 
   try {
     const where: Prisma.PlayerProfileWhereInput = {
-      isActive: true,
+      isActive: filter === "INACTIVE" ? false : true,
       ...(search
         ? {
             OR: [
@@ -117,13 +117,10 @@ export async function getPlayerDirectoryAction(
     });
     const profileIds = profiles.map((profile) => profile.id);
     const balances = profileIds.length
-      ? await prisma.$queryRaw<
-          { playerProfileId: string; balance: number; openSessionCount: number }[]
-        >(Prisma.sql`
+      ? await prisma.$queryRaw<{ playerProfileId: string; balance: number }[]>(Prisma.sql`
           SELECT
             due.player_profile_id AS "playerProfileId",
-            COALESCE(SUM(due.amount - COALESCE(paid.total_paid, 0)), 0)::int AS balance,
-            COUNT(*) FILTER (WHERE due.amount > COALESCE(paid.total_paid, 0))::int AS "openSessionCount"
+            COALESCE(SUM(due.amount - COALESCE(paid.total_paid, 0)), 0)::int AS balance
           FROM session_dues AS due
           LEFT JOIN (
             SELECT due_id, SUM(amount) AS total_paid
@@ -140,7 +137,9 @@ export async function getPlayerDirectoryAction(
       return {
         ...profile,
         outstandingAmount: balance?.balance ?? 0,
-        openSessionCount: balance?.openSessionCount ?? 0,
+        availableTabAmount: profile.tabEnabled
+          ? Math.max(0, profile.creditLimit - (balance?.balance ?? 0))
+          : null,
       };
     });
     const filtered = entries.filter((profile) => {
@@ -321,13 +320,7 @@ export async function getPlayerStatementAction(playerId: string) {
   return {
     profile,
     balance,
-    openSessionCount: dues.filter(
-      (due) =>
-        outstandingAmount(
-          due.amount,
-          due.payments.reduce((paid, allocation) => paid + allocation.amount, 0),
-        ) > 0,
-    ).length,
+    availableTabAmount: profile.tabEnabled ? Math.max(0, profile.creditLimit - balance) : null,
     dues: dues.map((due) => ({
       ...due,
       outstandingAmount: outstandingAmount(
@@ -337,6 +330,7 @@ export async function getPlayerStatementAction(playerId: string) {
       opponentNames: Array.isArray(due.session.players)
         ? due.session.players.flatMap((player) => {
             if (!player || typeof player !== "object" || !("name" in player)) return [];
+            if ("profileId" in player && player.profileId === id) return [];
             return typeof player.name === "string" && player.name.trim()
               ? [player.name.trim()]
               : [];

@@ -16,6 +16,23 @@ export function playerNamesForTeam(players: SessionPlayer[], team: SessionTeam) 
   return players.filter((player) => player.team === team).map((player) => player.name);
 }
 
+export function sessionMatchup(players: SessionPlayer[], format: SessionGameFormat | null) {
+  const names = players.map((player) => player.name.trim()).filter(Boolean);
+  if (format === "DOUBLES") {
+    const teamA = playerNamesForTeam(players, "A");
+    const teamB = playerNamesForTeam(players, "B");
+    if (teamA.length > 0 && teamB.length > 0) {
+      return `${teamA.join(" & ")} vs ${teamB.join(" & ")}`;
+    }
+  }
+  if (format === "SINGLES" && names.length >= 2) {
+    return `${names[0]} vs ${names[1]}`;
+  }
+  if (format === "GROUP") return names.join(", ");
+  if (format === "SOLO") return names[0] ? `${names[0]} · Solo practice` : "Solo practice";
+  return names.join(" vs ");
+}
+
 export function discountPercentToBasisPoints(value: unknown) {
   const text =
     typeof value === "number" && Number.isFinite(value)

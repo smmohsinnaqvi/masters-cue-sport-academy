@@ -8,6 +8,7 @@ import {
   Check,
   ChevronDown,
   ChevronUp,
+  Link2,
   Clock3,
   CircleDollarSign,
   CreditCard,
@@ -51,6 +52,7 @@ import {
   createPlayerProfileAction,
   getPlayerDirectoryAction,
   getPlayerStatementAction,
+  updatePlayerProfileAction,
 } from "@/actions/player-actions";
 import { SiteHeader } from "@/components/layout/site-header";
 import { Badge } from "@/components/ui/badge";
@@ -99,6 +101,7 @@ import {
   playerNamesForTeam,
   sessionCharge,
   sessionDurationMinutes,
+  sessionMatchup,
   sessionPlayerNames,
   splitSessionCharge,
   type PayerShare,
@@ -170,7 +173,7 @@ type Booking = {
 type Snapshot = Awaited<ReturnType<typeof getOperationsSnapshotAction>>;
 type OperationsSummary = Awaited<ReturnType<typeof getOperationsSummaryAction>>;
 type HistoryRangeSummary = Awaited<ReturnType<typeof getHistoryRangeSummaryAction>>;
-type PlayerDirectoryFilter = "ALL" | "HAS_DUES" | "OVER_LIMIT";
+type PlayerDirectoryFilter = "ALL" | "HAS_DUES" | "OVER_LIMIT" | "INACTIVE";
 type PlayerDirectoryEntry = Awaited<ReturnType<typeof getPlayerDirectoryAction>>["players"][number];
 type PlayerStatement = Awaited<ReturnType<typeof getPlayerStatementAction>>;
 type PlayerProfileForm = {
@@ -182,6 +185,7 @@ type PlayerProfileForm = {
   skillTier: "NOVICE" | "CLUB_REGULAR" | "STATE_PRO" | "PROFESSIONAL";
   tabEnabled: boolean;
   creditLimit: string;
+  isActive: boolean;
 };
 
 const EMPTY_PLAYER_PROFILE_FORM: PlayerProfileForm = {
@@ -193,6 +197,7 @@ const EMPTY_PLAYER_PROFILE_FORM: PlayerProfileForm = {
   skillTier: "CLUB_REGULAR",
   tabEnabled: true,
   creditLimit: "5000",
+  isActive: true,
 };
 
 type WalkInForm = {
@@ -392,7 +397,13 @@ function sessionPlayers(value: unknown, fallbackName?: string | null): SessionPl
       if (typeof name !== "string" || !name.trim()) return [];
       const team =
         "team" in player && (player.team === "A" || player.team === "B") ? player.team : undefined;
-      return [{ name: name.trim(), ...(team ? { team } : {}) }];
+      const profileId =
+        "profileId" in player && typeof player.profileId === "string"
+          ? player.profileId
+          : undefined;
+      return [
+        { name: name.trim(), ...(team ? { team } : {}), ...(profileId ? { profileId } : {}) },
+      ];
     });
   }
   return fallbackName?.trim() ? [{ name: fallbackName.trim() }] : [];
@@ -520,6 +531,7 @@ export default function SupervisorPage() {
   const [playersError, setPlayersError] = useState<string | null>(null);
   const [showPlayerForm, setShowPlayerForm] = useState(false);
   const [playerForm, setPlayerForm] = useState<PlayerProfileForm>(EMPTY_PLAYER_PROFILE_FORM);
+  const [editingPlayerId, setEditingPlayerId] = useState<string | null>(null);
   const [isCreatingPlayer, setIsCreatingPlayer] = useState(false);
   const [playerFormError, setPlayerFormError] = useState<string | null>(null);
   const [registerForPlayerIndex, setRegisterForPlayerIndex] = useState<number | null>(null);
@@ -634,7 +646,7 @@ export default function SupervisorPage() {
     setIsCreatingPlayer(true);
     setPlayerFormError(null);
     try {
-      const created = await createPlayerProfileAction({
+      const profileInput = {
         fullName: playerForm.fullName,
         nickname: playerForm.nickname,
         phone: playerForm.phone,
@@ -643,24 +655,31 @@ export default function SupervisorPage() {
         skillTier: playerForm.skillTier,
         tabEnabled: playerForm.tabEnabled,
         creditLimit,
-      });
-      if (registerForPlayerIndex !== null) {
+        isActive: playerForm.isActive,
+      };
+      const saved = editingPlayerId
+        ? await updatePlayerProfileAction(editingPlayerId, profileInput)
+        : await createPlayerProfileAction(profileInput);
+      if (!editingPlayerId && registerForPlayerIndex !== null) {
         setForm((current) => ({
           ...current,
           players: current.players.map((player, index) =>
             index === registerForPlayerIndex
-              ? { ...player, name: created.fullName, profileId: created.id }
+              ? { ...player, name: saved.fullName, profileId: saved.id }
               : player,
           ),
         }));
         setRegisterForPlayerIndex(null);
       }
       setPlayerForm(EMPTY_PLAYER_PROFILE_FORM);
+      setEditingPlayerId(null);
       setShowPlayerForm(false);
-      setPlayerSearch("");
-      setPlayerFilter("ALL");
       setPlayersError(null);
       setRefreshKey((value) => value + 1);
+      if (!editingPlayerId) {
+        setPlayerSearch("");
+        setPlayerFilter("ALL");
+      }
       if (playerPickerIndex !== null) {
         setPlayerPickerIndex(null);
         setPlayerPickerSearch("");
@@ -672,6 +691,23 @@ export default function SupervisorPage() {
     } finally {
       setIsCreatingPlayer(false);
     }
+  }
+
+  function openPlayerEditor(player: PlayerDirectoryEntry) {
+    setPlayerForm({
+      fullName: player.fullName,
+      nickname: player.nickname ?? "",
+      phone: player.phone,
+      primaryDiscipline: player.primaryDiscipline,
+      preferredFormat: player.preferredFormat ?? "NONE",
+      skillTier: player.skillTier,
+      tabEnabled: player.tabEnabled,
+      creditLimit: String(player.creditLimit),
+      isActive: player.isActive,
+    });
+    setEditingPlayerId(player.id);
+    setPlayerFormError(null);
+    setShowPlayerForm(true);
   }
 
   async function openPlayerPicker(index: number) {
@@ -723,6 +759,13 @@ export default function SupervisorPage() {
             ? {
                 ...player,
                 outstandingAmount: Math.max(0, player.outstandingAmount - amount),
+                availableTabAmount:
+                  player.availableTabAmount === null
+                    ? null
+                    : Math.max(
+                        0,
+                        player.creditLimit - Math.max(0, player.outstandingAmount - amount),
+                      ),
               }
             : player,
         ),
@@ -1257,54 +1300,73 @@ export default function SupervisorPage() {
     return (
       <div key={`walkin-player-${index}`} className="space-y-1">
         <div className="flex items-start gap-2">
-          <div className="min-w-0 flex-1">
+          <div className="min-w-0 flex-1 space-y-1">
             <WalkInPlayerField
               index={index}
               name={player.name}
               error={walkInValidation.players[index]}
               onNameChange={(name) => changePlayerName(index, name)}
             />
+            <p
+              className={cn(
+                "inline-flex items-center gap-1 pl-11 text-[11px]",
+                player.profileId ? "font-medium text-felt" : "text-muted-foreground",
+              )}
+            >
+              {player.profileId ? (
+                <>
+                  <Link2 className="h-3 w-3" aria-hidden="true" />
+                  Linked to regular account
+                </>
+              ) : (
+                "Guest name · not linked to an account"
+              )}
+            </p>
           </div>
-          {!editing && player.profileId ? (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="min-h-10 shrink-0 px-2.5 text-xs"
-              onClick={() =>
-                setForm((current) => ({
-                  ...current,
-                  players: current.players.map((item, playerIndex) =>
-                    playerIndex === index ? { ...item, profileId: undefined } : item,
-                  ),
-                }))
-              }
+          {!editing ? (
+            <div
+              className="inline-flex min-h-10 shrink-0 self-start rounded-full bg-background/80 p-0.5"
+              role="group"
+              aria-label={`Player ${index + 1} account type`}
             >
-              Guest
-            </Button>
-          ) : !editing ? (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="min-h-10 shrink-0 gap-1.5 px-2.5 text-xs"
-              onClick={() => void openPlayerPicker(index)}
-            >
-              <UsersRound className="h-3.5 w-3.5" aria-hidden="true" />
-              Regular
-            </Button>
+              <button
+                type="button"
+                aria-pressed={Boolean(player.profileId)}
+                title={player.profileId ? "Regular player selected" : "Choose a regular player"}
+                onClick={() => void openPlayerPicker(index)}
+                className={cn(
+                  "min-h-9 rounded-full px-2.5 text-[11px] font-semibold transition-colors",
+                  player.profileId
+                    ? "bg-felt text-primary-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                Regular
+              </button>
+              <button
+                type="button"
+                aria-pressed={!player.profileId}
+                title="Use this name as a guest"
+                onClick={() =>
+                  setForm((current) => ({
+                    ...current,
+                    players: current.players.map((item, playerIndex) =>
+                      playerIndex === index ? { ...item, profileId: undefined } : item,
+                    ),
+                  }))
+                }
+                className={cn(
+                  "min-h-9 rounded-full px-2.5 text-[11px] font-semibold transition-colors",
+                  !player.profileId
+                    ? "bg-felt text-primary-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                Guest
+              </button>
+            </div>
           ) : null}
         </div>
-        <p
-          className={cn(
-            "pl-11 text-[11px]",
-            player.profileId ? "font-medium text-felt" : "text-muted-foreground",
-          )}
-        >
-          {player.profileId
-            ? "Registered account selected"
-            : "Guest name · not linked to an account"}
-        </p>
       </div>
     );
   }
@@ -2491,43 +2553,35 @@ export default function SupervisorPage() {
                   />
                 </div>
 
-                <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
-                  <p className="text-sm text-muted-foreground">
-                    Registered players and their running account balances.
-                  </p>
-                  <Button
-                    type="button"
-                    className="min-h-11 w-full gap-2 sm:w-auto"
-                    onClick={() => {
-                      setPlayerFormError(null);
-                      setShowPlayerForm(true);
-                    }}
-                  >
-                    <Plus className="h-4 w-4" aria-hidden="true" />
-                    Register player
-                  </Button>
-                </div>
-
                 <Dialog
                   open={showPlayerForm}
                   onOpenChange={(open) => {
                     if (!isCreatingPlayer) {
                       setShowPlayerForm(open);
-                      if (!open) setRegisterForPlayerIndex(null);
+                      if (!open) {
+                        setRegisterForPlayerIndex(null);
+                        setEditingPlayerId(null);
+                        setPlayerForm(EMPTY_PLAYER_PROFILE_FORM);
+                        setPlayerFormError(null);
+                      }
                     }
                   }}
                 >
                   <DialogContent className="max-h-[92dvh] w-[calc(100%-1rem)] max-w-lg overflow-y-auto rounded-3xl border-border/80 bg-background p-4 shadow-2xl sm:p-5">
                     <DialogHeader className="pr-7 text-left">
                       <DialogTitle>
-                        {registerForPlayerIndex !== null
-                          ? "Register & add player"
-                          : "Add regular player"}
+                        {editingPlayerId
+                          ? "Edit player"
+                          : registerForPlayerIndex !== null
+                            ? "Register & add player"
+                            : "Register player"}
                       </DialogTitle>
                       <DialogDescription>
-                        {registerForPlayerIndex !== null
-                          ? "Save their details once and select them for this table."
-                          : "Save their details for faster table setup and dues tracking."}
+                        {editingPlayerId
+                          ? "Update contact and account details. Session dues and payment history stay unchanged."
+                          : registerForPlayerIndex !== null
+                            ? "Save their details once and select them for this table."
+                            : "Save their details for faster table setup and dues tracking."}
                       </DialogDescription>
                     </DialogHeader>
                     <form onSubmit={(event) => void savePlayerProfile(event)} className="space-y-3">
@@ -2730,6 +2784,38 @@ export default function SupervisorPage() {
                           </Field>
                         </div>
                       </details>
+                      {editingPlayerId ? (
+                        <div className="flex items-center justify-between gap-3 rounded-xl bg-surface/70 px-3 py-2.5">
+                          <span>
+                            <span className="block text-sm font-semibold">
+                              Player account active
+                            </span>
+                            <span className="block text-xs text-muted-foreground">
+                              Inactive profiles stay in history and can be restored later.
+                            </span>
+                          </span>
+                          <button
+                            type="button"
+                            role="switch"
+                            aria-checked={playerForm.isActive}
+                            aria-label="Player account active"
+                            onClick={() =>
+                              setPlayerForm({ ...playerForm, isActive: !playerForm.isActive })
+                            }
+                            className={cn(
+                              "relative h-6 w-11 shrink-0 rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-felt focus-visible:ring-offset-2",
+                              playerForm.isActive ? "bg-felt" : "bg-muted",
+                            )}
+                          >
+                            <span
+                              className={cn(
+                                "absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-[left]",
+                                playerForm.isActive ? "left-[22px]" : "left-0.5",
+                              )}
+                            />
+                          </button>
+                        </div>
+                      ) : null}
                       {playerFormError ? (
                         <p role="alert" className="text-sm text-destructive">
                           {playerFormError}
@@ -2752,12 +2838,14 @@ export default function SupervisorPage() {
                           type="submit"
                           className="min-h-11 flex-1 gap-2 sm:flex-none"
                           loading={isCreatingPlayer}
-                          loadingText="Registering…"
+                          loadingText={editingPlayerId ? "Saving…" : "Registering…"}
                         >
                           <UserRound className="h-4 w-4" aria-hidden="true" />
-                          {registerForPlayerIndex !== null
-                            ? "Register & add to table"
-                            : "Create player"}
+                          {editingPlayerId
+                            ? "Save changes"
+                            : registerForPlayerIndex !== null
+                              ? "Register & add to table"
+                              : "Create player"}
                         </Button>
                       </DialogFooter>
                     </form>
@@ -2765,8 +2853,8 @@ export default function SupervisorPage() {
                 </Dialog>
 
                 <div className="space-y-3">
-                  <div className="flex flex-col gap-2 sm:flex-row">
-                    <div className="relative flex-1">
+                  <div className="flex items-center gap-2">
+                    <div className="relative min-w-0 flex-1">
                       <Search
                         className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
                         aria-hidden="true"
@@ -2774,27 +2862,55 @@ export default function SupervisorPage() {
                       <Input
                         value={playerSearch}
                         onChange={(event) => setPlayerSearch(event.target.value)}
-                        placeholder="Search players by name, nickname, or phone"
+                        placeholder="Search players"
                         aria-label="Search players"
                         className="min-h-11 pl-9"
                       />
                     </div>
-                    <Select
-                      value={playerFilter}
-                      onValueChange={(value) => setPlayerFilter(value as PlayerDirectoryFilter)}
+                    <Button
+                      type="button"
+                      className="min-h-11 shrink-0 gap-1.5 px-3 text-xs sm:px-4 sm:text-sm"
+                      aria-label="Register a player"
+                      onClick={() => {
+                        setPlayerForm(EMPTY_PLAYER_PROFILE_FORM);
+                        setEditingPlayerId(null);
+                        setRegisterForPlayerIndex(null);
+                        setPlayerFormError(null);
+                        setShowPlayerForm(true);
+                      }}
                     >
-                      <SelectTrigger
-                        className="min-h-11 min-w-[12rem] border-border bg-background/70 text-sm shadow-none"
-                        aria-label="Filter players"
+                      <Plus className="h-4 w-4" aria-hidden="true" />
+                      <span>Register player</span>
+                    </Button>
+                  </div>
+                  <div
+                    className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1"
+                    role="group"
+                    aria-label="Filter players"
+                  >
+                    {(
+                      [
+                        ["ALL", "All players"],
+                        ["HAS_DUES", "Has dues"],
+                        ["OVER_LIMIT", "Over limit"],
+                        ["INACTIVE", "Inactive"],
+                      ] as const
+                    ).map(([filter, label]) => (
+                      <button
+                        key={filter}
+                        type="button"
+                        aria-pressed={playerFilter === filter}
+                        onClick={() => setPlayerFilter(filter)}
+                        className={cn(
+                          "min-h-9 shrink-0 rounded-full border px-3.5 text-xs font-semibold transition-colors",
+                          playerFilter === filter
+                            ? "border-felt bg-felt text-primary-foreground"
+                            : "border-border bg-surface text-muted-foreground hover:bg-surface-strong hover:text-foreground",
+                        )}
                       >
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="ALL">All players</SelectItem>
-                        <SelectItem value="HAS_DUES">Has dues</SelectItem>
-                        <SelectItem value="OVER_LIMIT">Over limit</SelectItem>
-                      </SelectContent>
-                    </Select>
+                        {label}
+                      </button>
+                    ))}
                   </div>
 
                   {playersError ? (
@@ -2834,15 +2950,28 @@ export default function SupervisorPage() {
                         key={player.id}
                         className="group min-w-0 overflow-hidden rounded-2xl border border-border/80 bg-surface p-4 shadow-[0_4px_18px_rgba(0,0,0,0.2)] transition-colors hover:border-felt/40"
                       >
-                        <div className="min-w-0">
-                          <p className="break-words text-base font-bold leading-snug [overflow-wrap:anywhere]">
-                            {player.fullName}
-                          </p>
-                          {player.nickname ? (
-                            <p className="mt-1 text-xs text-muted-foreground">
-                              “{player.nickname}”
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="break-words text-base font-bold leading-snug [overflow-wrap:anywhere]">
+                              {player.fullName}
                             </p>
-                          ) : null}
+                            {player.nickname ? (
+                              <p className="mt-1 text-xs text-muted-foreground">
+                                “{player.nickname}”
+                              </p>
+                            ) : null}
+                          </div>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-9 w-9 shrink-0 text-muted-foreground hover:text-foreground"
+                            aria-label={`Edit ${player.fullName}`}
+                            title={`Edit ${player.fullName}`}
+                            onClick={() => openPlayerEditor(player)}
+                          >
+                            <PencilLine className="h-4 w-4" aria-hidden="true" />
+                          </Button>
                         </div>
 
                         <div className="mt-4 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
@@ -2862,9 +2991,13 @@ export default function SupervisorPage() {
                         <div className="mt-4 flex items-center justify-between gap-3 border-t border-border/70 pt-3">
                           <div>
                             <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-                              Open sessions
+                              {player.availableTabAmount === null ? "Tab access" : "Tab available"}
                             </p>
-                            <p className="mt-1 text-sm font-semibold">{player.openSessionCount}</p>
+                            <p className="mt-1 text-sm font-semibold">
+                              {player.availableTabAmount === null
+                                ? "Disabled"
+                                : money(player.availableTabAmount)}
+                            </p>
                           </div>
                           <div className="text-right">
                             <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
@@ -2947,9 +3080,15 @@ export default function SupervisorPage() {
                             value={money(statement.balance)}
                           />
                           <Metric
-                            icon={ReceiptText}
-                            label="Open sessions"
-                            value={String(statement.openSessionCount)}
+                            icon={WalletCards}
+                            label={
+                              statement.availableTabAmount === null ? "Tab access" : "Tab available"
+                            }
+                            value={
+                              statement.availableTabAmount === null
+                                ? "Disabled"
+                                : money(statement.availableTabAmount)
+                            }
                           />
                         </div>
 
@@ -3021,9 +3160,10 @@ export default function SupervisorPage() {
                           ) : (
                             <div className="space-y-2">
                               {statement.matches.map((match) => {
-                                const opponents = sessionPlayers(match.players)
-                                  .filter((player) => player.profileId !== statement.profile.id)
-                                  .map((player) => player.name);
+                                const matchup = sessionMatchup(
+                                  sessionPlayers(match.players),
+                                  match.gameFormat,
+                                );
                                 return (
                                   <div
                                     key={match.id}
@@ -3034,12 +3174,7 @@ export default function SupervisorPage() {
                                         {match.tableName} · {date(match.startTime)}
                                       </p>
                                       <p className="truncate text-xs text-muted-foreground">
-                                        {match.gameLabel ||
-                                          gameFormatDescription(match.gameFormat) ||
-                                          "Match"}
-                                        {opponents.length > 0
-                                          ? ` · vs ${opponents.join(", ")}`
-                                          : ""}
+                                        {matchup || match.gameLabel || "Match"}
                                       </p>
                                     </div>
                                     <Badge variant="outline" className="shrink-0">
@@ -3058,6 +3193,10 @@ export default function SupervisorPage() {
                             className="space-y-3 rounded-2xl bg-felt/5 p-3"
                           >
                             <h3 className="font-semibold">Record account payment</h3>
+                            <p className="text-xs text-muted-foreground">
+                              Payments are applied to the oldest session balances first and update
+                              each session as it is settled.
+                            </p>
                             <div className="grid grid-cols-2 gap-2">
                               <Input
                                 type="number"
@@ -3085,6 +3224,14 @@ export default function SupervisorPage() {
                                 </SelectContent>
                               </Select>
                             </div>
+                            <button
+                              type="button"
+                              disabled={collectingPlayerId === statement.profile.id}
+                              onClick={() => setPlayerPaymentAmount(String(statement.balance))}
+                              className="min-h-8 rounded-full bg-felt/10 px-3 text-xs font-semibold text-felt transition-colors hover:bg-felt/20 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              Settle full balance · {money(statement.balance)}
+                            </button>
                             {playerPaymentError ? (
                               <p role="alert" className="text-sm text-destructive">
                                 {playerPaymentError}

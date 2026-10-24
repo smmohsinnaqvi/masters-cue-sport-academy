@@ -8,6 +8,7 @@ import {
   discountedSessionCharge,
   sessionCharge,
   sessionDurationMinutes,
+  sessionMatchup,
   sessionPlayerNames,
   playerNamesForTeam,
   splitSessionCharge,
@@ -47,6 +48,30 @@ test("calculates whole-minute charges and applies discount to gross amount", () 
   assert.equal(discountedSessionCharge(101, 0.5), 100);
   assert.equal(discountedSessionCharge(1000, 12.75), 873);
   assert.equal(discountedSessionCharge(101, 100), 0);
+});
+
+test("formats match history as player matchups without repeating the game format", () => {
+  assert.equal(
+    sessionMatchup([{ name: "Mohsin", profileId: "player-1" }, { name: "Ali" }], "SINGLES"),
+    "Mohsin vs Ali",
+  );
+  assert.equal(
+    sessionMatchup(
+      [
+        { name: "Player A1", team: "A" },
+        { name: "Player B1", team: "B" },
+        { name: "Player A2", team: "A" },
+        { name: "Player B2", team: "B" },
+      ],
+      "DOUBLES",
+    ),
+    "Player A1 & Player A2 vs Player B1 & Player B2",
+  );
+  assert.equal(sessionMatchup([{ name: "Solo" }], "SOLO"), "Solo · Solo practice");
+  assert.equal(
+    sessionMatchup([{ name: "One" }, { name: "Two" }, { name: "Three" }], "GROUP"),
+    "One, Two, Three",
+  );
 });
 
 test("accepts bounded percentage discounts with up to two decimal places", () => {
