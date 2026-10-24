@@ -267,20 +267,25 @@ function WalkInPlayerField({
   index,
   name,
   error,
+  onClick,
+  pickerOpen = false,
   onNameChange,
 }: {
   index: number;
   name: string;
   error?: string;
+  onClick?: () => void;
+  pickerOpen?: boolean;
   onNameChange: (value: string) => void;
 }) {
   const id = `walkin-player-${index}`;
+  const statusId = `${id}-status`;
   return (
     <div className="flex items-start gap-2">
       <span className="mt-1 flex h-10 w-9 shrink-0 items-center justify-center rounded-lg bg-felt/10 text-[11px] font-bold text-felt">
         P{index + 1}
       </span>
-      <div className="min-w-0 flex-1 space-y-1">
+      <div className={cn("min-w-0 flex-1 space-y-1", onClick && "relative")}>
         <Input
           id={id}
           autoComplete="off"
@@ -288,10 +293,27 @@ function WalkInPlayerField({
           value={name}
           aria-label={`Player ${index + 1} name`}
           aria-invalid={Boolean(error)}
-          aria-describedby={error ? `${id}-error` : undefined}
+          aria-describedby={error ? `${id}-error ${statusId}` : statusId}
           placeholder={`Player ${index + 1} name`}
+          readOnly={Boolean(onClick)}
+          aria-haspopup={onClick ? "dialog" : undefined}
+          aria-expanded={onClick ? pickerOpen : undefined}
+          onClick={onClick}
+          onKeyDown={(event) => {
+            if (onClick && (event.key === "Enter" || event.key === " ")) {
+              event.preventDefault();
+              onClick();
+            }
+          }}
           onChange={(event) => onNameChange(event.target.value)}
+          className={onClick ? "cursor-pointer pr-9" : undefined}
         />
+        {onClick ? (
+          <ChevronDown
+            className="pointer-events-none absolute right-3 top-4 h-4 w-4 text-muted-foreground"
+            aria-hidden="true"
+          />
+        ) : null}
         {error ? (
           <p id={`${id}-error`} role="alert" className="px-1 text-xs font-medium text-destructive">
             {error}
@@ -537,6 +559,7 @@ export default function SupervisorPage() {
   const [registerForPlayerIndex, setRegisterForPlayerIndex] = useState<number | null>(null);
   const [playerPickerIndex, setPlayerPickerIndex] = useState<number | null>(null);
   const [playerPickerSearch, setPlayerPickerSearch] = useState("");
+  const [playerPickerGuestName, setPlayerPickerGuestName] = useState("");
   const [playerPickerResults, setPlayerPickerResults] = useState<PlayerDirectoryEntry[]>([]);
   const [playerPickerLoading, setPlayerPickerLoading] = useState(false);
   const [playerPickerError, setPlayerPickerError] = useState<string | null>(null);
@@ -711,11 +734,27 @@ export default function SupervisorPage() {
   }
 
   async function openPlayerPicker(index: number) {
+    setPlayerPickerGuestName(form.players[index]?.name ?? "");
     setPlayerPickerIndex(index);
     setPlayerPickerSearch("");
     setPlayerPickerResults([]);
     setPlayerPickerLoading(true);
     setPlayerPickerError(null);
+  }
+
+  function selectGuestPlayer() {
+    if (playerPickerIndex === null) return;
+    const name = playerPickerGuestName.trim();
+    if (!name) return;
+    setForm((current) => ({
+      ...current,
+      players: current.players.map((player, index) =>
+        index === playerPickerIndex ? { ...player, name, profileId: undefined } : player,
+      ),
+    }));
+    setWalkInValidation({ players: {}, message: null });
+    setPlayerPickerIndex(null);
+    setPlayerPickerSearch("");
   }
 
   async function openPlayerStatement(playerId: string) {
@@ -1305,9 +1344,12 @@ export default function SupervisorPage() {
               index={index}
               name={player.name}
               error={walkInValidation.players[index]}
+              onClick={editing ? undefined : () => void openPlayerPicker(index)}
+              pickerOpen={playerPickerIndex === index}
               onNameChange={(name) => changePlayerName(index, name)}
             />
             <p
+              id={`walkin-player-${index}-status`}
               className={cn(
                 "inline-flex items-center gap-1 pl-11 text-[11px]",
                 player.profileId ? "font-medium text-felt" : "text-muted-foreground",
@@ -1323,49 +1365,6 @@ export default function SupervisorPage() {
               )}
             </p>
           </div>
-          {!editing ? (
-            <div
-              className="inline-flex min-h-10 shrink-0 self-start rounded-full bg-background/80 p-0.5"
-              role="group"
-              aria-label={`Player ${index + 1} account type`}
-            >
-              <button
-                type="button"
-                aria-pressed={Boolean(player.profileId)}
-                title={player.profileId ? "Regular player selected" : "Choose a regular player"}
-                onClick={() => void openPlayerPicker(index)}
-                className={cn(
-                  "min-h-9 rounded-full px-2.5 text-[11px] font-semibold transition-colors",
-                  player.profileId
-                    ? "bg-felt text-primary-foreground shadow-sm"
-                    : "text-muted-foreground hover:text-foreground",
-                )}
-              >
-                Regular
-              </button>
-              <button
-                type="button"
-                aria-pressed={!player.profileId}
-                title="Use this name as a guest"
-                onClick={() =>
-                  setForm((current) => ({
-                    ...current,
-                    players: current.players.map((item, playerIndex) =>
-                      playerIndex === index ? { ...item, profileId: undefined } : item,
-                    ),
-                  }))
-                }
-                className={cn(
-                  "min-h-9 rounded-full px-2.5 text-[11px] font-semibold transition-colors",
-                  !player.profileId
-                    ? "bg-felt text-primary-foreground shadow-sm"
-                    : "text-muted-foreground hover:text-foreground",
-                )}
-              >
-                Guest
-              </button>
-            </div>
-          ) : null}
         </div>
       </div>
     );
@@ -1881,11 +1880,13 @@ export default function SupervisorPage() {
               if (!open) setPlayerPickerIndex(null);
             }}
           >
-            <DialogContent className="max-h-[88dvh] w-[calc(100%-1rem)] max-w-md overflow-y-auto rounded-3xl border-border/80 bg-background p-4 shadow-2xl sm:p-5">
+            <DialogContent className="bottom-0 left-1/2 top-auto max-h-[88dvh] w-full max-w-lg translate-x-[-50%] translate-y-0 overflow-y-auto rounded-b-none rounded-t-3xl border-border/80 bg-background p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] shadow-2xl sm:bottom-auto sm:top-[50%] sm:w-[calc(100%-1rem)] sm:max-w-md sm:translate-y-[-50%] sm:rounded-3xl sm:p-5 sm:pb-5">
               <DialogHeader className="pr-7 text-left">
-                <DialogTitle>Choose a regular player</DialogTitle>
+                <DialogTitle>
+                  Choose player{playerPickerIndex === null ? "" : ` ${playerPickerIndex + 1}`}
+                </DialogTitle>
                 <DialogDescription>
-                  Or keep the name as a guest to avoid linking this session to an account.
+                  Select a registered account or enter a guest name for this session.
                 </DialogDescription>
               </DialogHeader>
               <div className="space-y-3">
@@ -1944,20 +1945,39 @@ export default function SupervisorPage() {
                     ))}
                     {playerPickerResults.length === 0 ? (
                       <p className="rounded-xl bg-surface/60 px-3 py-5 text-center text-sm text-muted-foreground">
-                        No registered players match that search.
+                        {playerPickerSearch
+                          ? "No registered players match that search."
+                          : "No active registered players found."}
                       </p>
                     ) : null}
                   </div>
                 ) : null}
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="min-h-10 w-full gap-2"
-                  onClick={() => setPlayerPickerIndex(null)}
-                >
-                  <UserRound className="h-4 w-4" aria-hidden="true" />
-                  Continue as guest
-                </Button>
+                <div className="space-y-2 rounded-2xl border border-border/80 bg-surface/50 p-3">
+                  <div>
+                    <p className="text-sm font-semibold">Add as guest</p>
+                    <p className="text-xs text-muted-foreground">
+                      Guest names are only saved with this session, not to a player account.
+                    </p>
+                  </div>
+                  <Input
+                    value={playerPickerGuestName}
+                    onChange={(event) => setPlayerPickerGuestName(event.target.value)}
+                    maxLength={120}
+                    placeholder="Enter guest player name"
+                    aria-label="Guest player name"
+                    className="min-h-11"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="min-h-11 w-full gap-2"
+                    disabled={!playerPickerGuestName.trim()}
+                    onClick={selectGuestPlayer}
+                  >
+                    <UserRound className="h-4 w-4" aria-hidden="true" />
+                    Use guest name
+                  </Button>
+                </div>
                 <Button
                   type="button"
                   className="min-h-11 w-full gap-2"
