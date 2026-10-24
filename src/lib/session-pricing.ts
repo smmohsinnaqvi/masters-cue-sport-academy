@@ -1,6 +1,7 @@
 export type SessionPlayer = {
   name: string;
   team?: "A" | "B";
+  profileId?: string;
 };
 
 export type SessionGameFormat = "SINGLES" | "DOUBLES" | "GROUP" | "SOLO";
@@ -132,9 +133,16 @@ export function validateSessionPlayers(
     if (format === "DOUBLES" && player.team !== "A" && player.team !== "B") {
       throw new Error("Assign every doubles player to Team A or Team B");
     }
+    if (
+      player.profileId !== undefined &&
+      (typeof player.profileId !== "string" || !player.profileId.trim())
+    ) {
+      throw new Error(`Player ${index + 1} has an invalid profile`);
+    }
     return {
       name,
       ...(format === "DOUBLES" ? { team: player.team } : {}),
+      ...(player.profileId ? { profileId: player.profileId.trim() } : {}),
     };
   });
   if (
@@ -146,6 +154,10 @@ export function validateSessionPlayers(
     const teamA = normalized.filter((player) => player.team === "A").length;
     const teamB = normalized.filter((player) => player.team === "B").length;
     if (teamA !== 2 || teamB !== 2) throw new Error("Doubles requires two players on each team");
+  }
+  const profileIds = normalized.flatMap((player) => (player.profileId ? [player.profileId] : []));
+  if (new Set(profileIds).size !== profileIds.length) {
+    throw new Error("A registered player can only be selected once");
   }
   const normalizedLabel = gameLabel?.trim() ?? "";
   if (normalizedLabel.length > 40) throw new Error("Game label must be 40 characters or fewer");

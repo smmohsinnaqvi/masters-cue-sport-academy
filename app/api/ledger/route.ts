@@ -29,6 +29,48 @@ function presentSessions<
   );
 }
 
+function presentDuesSessions<
+  T extends {
+    discountPercentBasisPoints: number;
+    settlementDiscountPercentBasisPoints: number;
+    amount: number | null;
+    dues?: {
+      amount: number;
+      playerProfileId: string | null;
+      payments?: { amount: number }[];
+    }[];
+  },
+>(sessions: T[]) {
+  return sessions.map(
+    ({
+      dues = [],
+      discountPercentBasisPoints,
+      settlementDiscountPercentBasisPoints,
+      ...session
+    }) => ({
+      ...session,
+      discountPercent: discountPercentFromBasisPoints(discountPercentBasisPoints),
+      settlementDiscountPercent: discountPercentFromBasisPoints(
+        settlementDiscountPercentBasisPoints,
+      ),
+      outstandingAmount:
+        dues.length > 0
+          ? dues.reduce((total, due) => {
+              const payments = due.payments ?? [];
+              return (
+                total +
+                Math.max(
+                  0,
+                  due.amount - payments.reduce((paid, payment) => paid + payment.amount, 0),
+                )
+              );
+            }, 0)
+          : (session.amount ?? 0),
+      hasPlayerAccountDues: dues.some((due) => due.playerProfileId !== null),
+    }),
+  );
+}
+
 export async function GET(request: Request) {
   const session = await getAcademySession();
   if (!session) {
@@ -82,13 +124,6 @@ export async function GET(request: Request) {
       { status: 400 },
     );
   }
-  if (view === "dues" && (dateFrom || dateTo)) {
-    return NextResponse.json(
-      { error: "Date filters are supported only for ledger and bookings views" },
-      { status: 400 },
-    );
-  }
-
   await reconcileSessionLifecycle();
   const where: Prisma.SessionWhereInput =
     view === "bookings"
@@ -153,14 +188,23 @@ export async function GET(request: Request) {
         ],
       },
       take: take + 1,
-      include: { table: { select: { id: true, name: true, type: true } } },
+      include: {
+        table: { select: { id: true, name: true, type: true } },
+        ...(view === "dues"
+          ? {
+              dues: {
+                include: { payments: { select: { amount: true } } },
+              },
+            }
+          : {}),
+      },
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     });
     const hasMore = rows.length > take;
     const sessions = hasMore ? rows.slice(0, take) : rows;
     return NextResponse.json(
       {
-        sessions: presentSessions(sessions),
+        sessions: view === "dues" ? presentDuesSessions(sessions) : presentSessions(sessions),
         nextCursor: hasMore ? (sessions[sessions.length - 1]?.id ?? null) : null,
         hasMore,
       },
@@ -171,14 +215,23 @@ export async function GET(request: Request) {
   const rows = await prisma.session.findMany({
     where,
     take: take + 1,
-    include: { table: { select: { id: true, name: true, type: true } } },
+    include: {
+      table: { select: { id: true, name: true, type: true } },
+      ...(view === "dues"
+        ? {
+            dues: {
+              include: { payments: { select: { amount: true } } },
+            },
+          }
+        : {}),
+    },
     orderBy: [{ createdAt: "desc" }, { id: "desc" }],
   });
   const hasMore = rows.length > take;
   const sessions = hasMore ? rows.slice(0, take) : rows;
   return NextResponse.json(
     {
-      sessions: presentSessions(sessions),
+      sessions: view === "dues" ? presentDuesSessions(sessions) : presentSessions(sessions),
       nextCursor: hasMore ? (sessions[sessions.length - 1]?.id ?? null) : null,
       hasMore,
     },

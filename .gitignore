@@ -11,6 +11,7 @@ dist/
 .env
 .env.*
 !.env.example
+/.env.development.local
 
 # Logs
 logs/
@@ -25,6 +26,11 @@ pnpm-debug.log*
 .vscode/
 .idea/
 *.local
+
+# Machine-specific local PostgreSQL setup
+/scripts/dev-postgres.ps1
+/scripts/with-local-db-env.cjs
+/prisma/dev-baseline.sql
 
 # OS files
 .DS_Store

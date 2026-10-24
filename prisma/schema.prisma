@@ -56,6 +56,19 @@ enum SessionGameFormat {
   SOLO
 }
 
+enum PlayerDiscipline {
+  SNOOKER
+  POOL
+  BOTH
+}
+
+enum PlayerSkillTier {
+  NOVICE
+  CLUB_REGULAR
+  STATE_PRO
+  PROFESSIONAL
+}
+
 model Table {
   id         String    @id @default(cuid())
   name       String    @unique
@@ -121,6 +134,28 @@ model ShopProduct {
   @@map("shop_products")
 }
 
+model PlayerProfile {
+  id                String              @id @default(cuid())
+  fullName          String              @map("full_name")
+  nickname          String?
+  phone             String              @unique
+  primaryDiscipline PlayerDiscipline    @default(BOTH) @map("primary_discipline")
+  preferredFormat   SessionGameFormat?  @map("preferred_format")
+  skillTier         PlayerSkillTier     @default(CLUB_REGULAR) @map("skill_tier")
+  tabEnabled        Boolean             @default(true) @map("tab_enabled")
+  creditLimit       Int                 @default(5000) @map("credit_limit")
+  isActive          Boolean             @default(true) @map("is_active")
+  createdAt         DateTime            @default(now()) @map("created_at")
+  updatedAt         DateTime            @updatedAt @map("updated_at")
+  dues              SessionDue[]
+  payments          PlayerTabPayment[]
+  duePayments       SessionDuePayment[]
+
+  @@index([isActive, fullName])
+  @@index([nickname])
+  @@map("player_profiles")
+}
+
 model Session {
   id                                   String             @id @default(cuid())
   table                                Table              @relation(fields: [tableId], references: [id])
@@ -153,6 +188,7 @@ model Session {
   paymentMethod                        PaymentMethod?     @map("payment_method")
   payerName                            String?            @map("payer_name")
   paidAt                               DateTime?          @map("paid_at")
+  dues                                 SessionDue[]
   createdBy                            Supervisor?        @relation("CreatedBy", fields: [createdById], references: [id])
   createdById                          String?            @map("created_by_id")
   createdAt                            DateTime           @default(now()) @map("created_at")
@@ -165,4 +201,52 @@ model Session {
   @@index([source, createdAt(sort: Desc), id(sort: Desc)])
   @@index([paymentStatus, status, createdAt(sort: Desc), id(sort: Desc)])
   @@map("sessions")
+}
+
+model SessionDue {
+  id              String              @id @default(cuid())
+  sessionId       String              @map("session_id")
+  session         Session             @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  playerProfileId String?             @map("player_profile_id")
+  playerProfile   PlayerProfile?      @relation(fields: [playerProfileId], references: [id], onDelete: Restrict)
+  payerName       String              @map("payer_name")
+  amount          Int
+  createdAt       DateTime            @default(now()) @map("created_at")
+  payments        SessionDuePayment[]
+
+  @@unique([sessionId, payerName])
+  @@index([playerProfileId, createdAt])
+  @@index([sessionId])
+  @@map("session_dues")
+}
+
+model PlayerTabPayment {
+  id              String              @id @default(cuid())
+  playerProfileId String?             @map("player_profile_id")
+  playerProfile   PlayerProfile?      @relation(fields: [playerProfileId], references: [id], onDelete: Restrict)
+  payerName       String              @map("payer_name")
+  amount          Int
+  paymentMethod   PaymentMethod       @map("payment_method")
+  createdAt       DateTime            @default(now()) @map("created_at")
+  allocations     SessionDuePayment[]
+
+  @@index([playerProfileId, createdAt(sort: Desc)])
+  @@map("player_tab_payments")
+}
+
+model SessionDuePayment {
+  id              String           @id @default(cuid())
+  dueId           String           @map("due_id")
+  due             SessionDue       @relation(fields: [dueId], references: [id], onDelete: Cascade)
+  paymentId       String           @map("payment_id")
+  payment         PlayerTabPayment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  playerProfileId String?          @map("player_profile_id")
+  playerProfile   PlayerProfile?   @relation(fields: [playerProfileId], references: [id], onDelete: Restrict)
+  amount          Int
+  createdAt       DateTime         @default(now()) @map("created_at")
+
+  @@unique([dueId, paymentId])
+  @@index([playerProfileId, createdAt])
+  @@index([paymentId])
+  @@map("session_due_payments")
 }

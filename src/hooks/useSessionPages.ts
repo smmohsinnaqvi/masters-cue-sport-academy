@@ -23,6 +23,8 @@ export type SessionPageRow = {
   rateSnapshot: number | null;
   durationMinutes: number | null;
   amount: number | null;
+  outstandingAmount?: number;
+  hasPlayerAccountDues?: boolean;
   grossAmount: number | null;
   discountPercent: number;
   discountAmount: number;
@@ -102,7 +104,7 @@ export function useSessionPages(
         if (view === "ledger" && tableType !== "ALL") {
           params.set("tableType", tableType);
         }
-        if ((view === "ledger" || view === "bookings") && dateFrom && dateTo) {
+        if ((view === "ledger" || view === "bookings" || view === "dues") && dateFrom && dateTo) {
           params.set("dateFrom", dateFrom);
           params.set("dateTo", dateTo);
         }

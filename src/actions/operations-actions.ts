@@ -66,6 +66,25 @@ function isPaymentMethod(value: unknown): value is "CASH" | "UPI" | "CARD" {
   return Object.values(PaymentMethod).some((method) => method === value);
 }
 
+async function validatePlayerProfiles(
+  tx: Prisma.TransactionClient,
+  players: SessionPlayer[],
+  requireActive: boolean,
+) {
+  const profileIds = players.flatMap((player) => (player.profileId ? [player.profileId] : []));
+  if (profileIds.length === 0) return;
+  const profiles = await tx.playerProfile.findMany({
+    where: {
+      id: { in: profileIds },
+      ...(requireActive ? { isActive: true } : {}),
+    },
+    select: { id: true },
+  });
+  if (profiles.length !== profileIds.length) {
+    throw new Error("One or more selected player profiles are no longer available.");
+  }
+}
+
 function date(value: Date | string) {
   const result = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(result.getTime())) throw new Error("Invalid date");
@@ -187,6 +206,7 @@ export async function createWalkInSessionAction(input: {
   try {
     return await prisma.$transaction(
       async (tx) => {
+        await validatePlayerProfiles(tx, players, true);
         const activeSession = await tx.session.findFirst({
           where: {
             tableId,
@@ -382,14 +402,17 @@ export async function updateWalkInSessionAction(input: {
     input.gameLabel,
   );
   const customerName = players[0]!.name;
-  return prisma.session.update({
-    where: { id: sessionId, source: "WALKIN", status: "ONGOING" },
-    data: {
-      customerName,
-      players,
-      gameFormat: input.gameFormat,
-      gameLabel,
-    },
+  return prisma.$transaction(async (tx) => {
+    await validatePlayerProfiles(tx, players, false);
+    return tx.session.update({
+      where: { id: sessionId, source: "WALKIN", status: "ONGOING" },
+      data: {
+        customerName,
+        players,
+        gameFormat: input.gameFormat,
+        gameLabel,
+      },
+    });
   });
 }
 
@@ -457,6 +480,54 @@ export async function closeSessionAction(input: {
       },
     });
     if (result.count !== 1) throw new Error("Session was already closed");
+    if (!isPaid && payerShares.length > 0) {
+      const players = Array.isArray(session.players)
+        ? session.players.flatMap((player) => {
+            if (
+              !player ||
+              typeof player !== "object" ||
+              !("name" in player) ||
+              !("profileId" in player) ||
+              typeof player.name !== "string" ||
+              typeof player.profileId !== "string"
+            ) {
+              return [];
+            }
+            return [{ name: player.name, profileId: player.profileId }];
+          })
+        : [];
+      const candidateProfileIds = players.map((player) => player.profileId);
+      if (candidateProfileIds.length > 0) {
+        const eligibleProfiles = await tx.playerProfile.findMany({
+          where: {
+            id: { in: candidateProfileIds },
+            isActive: true,
+            tabEnabled: true,
+          },
+          select: { id: true },
+        });
+        const eligibleIds = new Set(eligibleProfiles.map((profile) => profile.id));
+        const profileIdByName = new Map(
+          players
+            .filter((player) => eligibleIds.has(player.profileId))
+            .map((player) => [player.name.toLocaleLowerCase(), player.profileId]),
+        );
+        const linkedPayers = payerShares.flatMap((share) => {
+          const profileId = profileIdByName.get(share.name.toLocaleLowerCase());
+          return profileId ? [{ share, profileId }] : [];
+        });
+        if (linkedPayers.length === payerShares.length) {
+          await tx.sessionDue.createMany({
+            data: linkedPayers.map(({ share, profileId }) => ({
+              sessionId: session.id,
+              payerName: share.name,
+              amount: share.amount,
+              playerProfileId: profileId,
+            })),
+          });
+        }
+      }
+    }
     return tx.session.findUniqueOrThrow({ where: { id: session.id } });
   });
 }
@@ -487,10 +558,77 @@ export async function settleSessionPaymentAction(input: {
         id: true,
         amount: true,
         discountPercentBasisPoints: true,
+        players: true,
       },
     });
     if (!session || session.amount === null) {
       throw new Error("This unpaid session cannot accept payment");
+    }
+    const hasRegisteredPlayers =
+      Array.isArray(session.players) &&
+      session.players.some(
+        (player) =>
+          player !== null &&
+          typeof player === "object" &&
+          "profileId" in player &&
+          typeof player.profileId === "string",
+      );
+    const sessionDues = hasRegisteredPlayers
+      ? await tx.sessionDue.findMany({
+          where: { sessionId: session.id },
+          orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+          include: { payments: { select: { amount: true } } },
+        })
+      : [];
+    if (sessionDues.length > 0) {
+      const outstandingDues = sessionDues.map((due) => ({
+        due,
+        outstandingAmount:
+          due.amount - due.payments.reduce((total, payment) => total + payment.amount, 0),
+      }));
+      const totalOutstanding = outstandingDues.reduce(
+        (total, due) => total + due.outstandingAmount,
+        0,
+      );
+      if (totalOutstanding <= 0) throw new Error("This session has already been settled.");
+      if (settlementDiscountPercentBasisPoints > 0) {
+        throw new Error(
+          "A session with account allocations cannot receive a second settlement discount.",
+        );
+      }
+      const payment = await tx.playerTabPayment.create({
+        data: {
+          payerName,
+          amount: totalOutstanding,
+          paymentMethod: input.paymentMethod,
+        },
+      });
+      await tx.sessionDuePayment.createMany({
+        data: outstandingDues
+          .filter((due) => due.outstandingAmount > 0)
+          .map(({ due, outstandingAmount }) => ({
+            dueId: due.id,
+            paymentId: payment.id,
+            playerProfileId: due.playerProfileId,
+            amount: outstandingAmount,
+          })),
+      });
+      const result = await tx.session.updateMany({
+        where: {
+          id: session.id,
+          status: "COMPLETED",
+          paymentStatus: "UNPAID",
+        },
+        data: {
+          paymentStatus: "PAID",
+          paymentMethod: input.paymentMethod,
+          payerName,
+          paidAt,
+        },
+      });
+      if (result.count !== 1)
+        throw new Error("This unpaid session changed before payment completed");
+      return tx.session.findUniqueOrThrow({ where: { id: session.id } });
     }
     const settlementDiscount = calculateSettlementDiscount(
       session.amount,
@@ -613,15 +751,63 @@ export async function getOperationsSummaryAction() {
   const now = new Date();
   const nextHour = new Date(now.getTime() + 60 * 60_000);
   const [unpaid, nextHourBookings] = await Promise.all([
-    prisma.session.aggregate({
-      where: {
-        status: "COMPLETED",
-        paymentStatus: "UNPAID",
-        source: { in: ["ONLINE", "WALKIN"] },
-      },
-      _sum: { amount: true },
-      _count: { _all: true },
-    }),
+    (async () => {
+      try {
+        const [totals] = await prisma.$queryRaw<
+          { unpaidAmount: number; unpaidCount: number }[]
+        >(Prisma.sql`
+          SELECT
+            COALESCE(
+              SUM(
+                CASE
+                  WHEN COALESCE(due_summary.due_count, 0) > 0
+                    THEN due_summary.outstanding_amount
+                  ELSE COALESCE(s.amount, 0)
+                END
+              ),
+              0
+            )::int AS "unpaidAmount",
+            COUNT(*)::int AS "unpaidCount"
+          FROM sessions s
+          LEFT JOIN LATERAL (
+            SELECT
+              COUNT(*) AS due_count,
+              SUM(GREATEST(0, due.amount - COALESCE(payment_summary.paid_amount, 0))) AS outstanding_amount
+            FROM session_dues due
+            LEFT JOIN LATERAL (
+              SELECT SUM(allocation.amount) AS paid_amount
+              FROM session_due_payments allocation
+              WHERE allocation.due_id = due.id
+            ) payment_summary ON TRUE
+            WHERE due.session_id = s.id
+          ) due_summary ON TRUE
+          WHERE s.status = 'COMPLETED'
+            AND s.payment_status = 'UNPAID'
+            AND s.source IN ('ONLINE', 'WALKIN')
+        `);
+        if (!totals) throw new Error("Unable to calculate outstanding dues.");
+        return totals;
+      } catch (error) {
+        const missingPlayerTables =
+          error instanceof Prisma.PrismaClientKnownRequestError &&
+          (error.code === "P2021" ||
+            (error.code === "P2010" && String(error.meta?.message ?? "").includes("session_dues")));
+        if (!missingPlayerTables) throw error;
+        const legacyTotals = await prisma.session.aggregate({
+          where: {
+            status: "COMPLETED",
+            paymentStatus: "UNPAID",
+            source: { in: ["ONLINE", "WALKIN"] },
+          },
+          _sum: { amount: true },
+          _count: { _all: true },
+        });
+        return {
+          unpaidAmount: legacyTotals._sum.amount ?? 0,
+          unpaidCount: legacyTotals._count._all,
+        };
+      }
+    })(),
     prisma.session.count({
       where: {
         source: "ONLINE",
@@ -631,8 +817,8 @@ export async function getOperationsSummaryAction() {
     }),
   ]);
   return {
-    unpaidAmount: unpaid._sum.amount ?? 0,
-    unpaidCount: unpaid._count._all,
+    unpaidAmount: unpaid.unpaidAmount,
+    unpaidCount: unpaid.unpaidCount,
     nextHourBookings,
   };
 }

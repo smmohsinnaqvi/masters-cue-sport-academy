@@ -14,6 +14,7 @@ import {
   FileText,
   Download,
   LockKeyhole,
+  Phone,
   PencilLine,
   Play,
   Plus,
@@ -25,6 +26,7 @@ import {
   Target,
   UserRound,
   UsersRound,
+  WalletCards,
   Trash2,
   X,
   type LucideIcon,
@@ -44,6 +46,12 @@ import {
   updateWalkInSessionAction,
 } from "@/actions/operations-actions";
 import { updateBookingStatusAction } from "@/actions/booking-actions";
+import {
+  collectPlayerTabPaymentAction,
+  createPlayerProfileAction,
+  getPlayerDirectoryAction,
+  getPlayerStatementAction,
+} from "@/actions/player-actions";
 import { SiteHeader } from "@/components/layout/site-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -162,6 +170,30 @@ type Booking = {
 type Snapshot = Awaited<ReturnType<typeof getOperationsSnapshotAction>>;
 type OperationsSummary = Awaited<ReturnType<typeof getOperationsSummaryAction>>;
 type HistoryRangeSummary = Awaited<ReturnType<typeof getHistoryRangeSummaryAction>>;
+type PlayerDirectoryFilter = "ALL" | "HAS_DUES" | "OVER_LIMIT";
+type PlayerDirectoryEntry = Awaited<ReturnType<typeof getPlayerDirectoryAction>>["players"][number];
+type PlayerStatement = Awaited<ReturnType<typeof getPlayerStatementAction>>;
+type PlayerProfileForm = {
+  fullName: string;
+  nickname: string;
+  phone: string;
+  primaryDiscipline: "SNOOKER" | "POOL" | "BOTH";
+  preferredFormat: SessionGameFormat | "NONE";
+  skillTier: "NOVICE" | "CLUB_REGULAR" | "STATE_PRO" | "PROFESSIONAL";
+  tabEnabled: boolean;
+  creditLimit: string;
+};
+
+const EMPTY_PLAYER_PROFILE_FORM: PlayerProfileForm = {
+  fullName: "",
+  nickname: "",
+  phone: "",
+  primaryDiscipline: "BOTH",
+  preferredFormat: "NONE",
+  skillTier: "CLUB_REGULAR",
+  tabEnabled: true,
+  creditLimit: "5000",
+};
 
 type WalkInForm = {
   tableId: string;
@@ -195,6 +227,7 @@ function playersForFormat(format: SessionGameFormat, current: SessionPlayer[]) {
           : Math.max(3, current.length);
   return Array.from({ length: count }, (_, index) => ({
     name: current[index]?.name ?? "",
+    ...(current[index]?.profileId ? { profileId: current[index].profileId } : {}),
     ...(format === "DOUBLES" ? { team: index < 2 ? ("A" as const) : ("B" as const) } : {}),
   }));
 }
@@ -424,7 +457,7 @@ function entryFromPage(session: SessionPageRow): Entry {
     payment: session.paymentStatus,
     paymentMethod: session.paymentMethod ?? "",
     payerName: session.payerName ?? "",
-    amount: session.amount ?? 0,
+    amount: session.outstandingAmount ?? session.amount ?? 0,
     durationMinutes: session.durationMinutes,
     source: session.source,
     players: participants,
@@ -467,13 +500,47 @@ export default function SupervisorPage() {
   const [historySummaryError, setHistorySummaryError] = useState<string | null>(null);
   const [snapshotLoading, setSnapshotLoading] = useState(true);
   const [refreshKey, setRefreshKey] = useState(0);
-  const [activeHistory, setActiveHistory] = useState<"tables" | "unpaid" | "ledger" | "bookings">(
-    "tables",
-  );
+  const [activeHistory, setActiveHistory] = useState<
+    "tables" | "unpaid" | "ledger" | "bookings" | "players"
+  >("tables");
   const [tableFilter, setTableFilter] = useState<TableFilter>("ALL");
   const [expandedBookings, setExpandedBookings] = useState<Record<string, boolean>>({});
   const [currentTime, setCurrentTime] = useState(() => Date.now());
   const [ledgerSearch, setLedgerSearch] = useState("");
+  const [playerSearch, setPlayerSearch] = useState("");
+  const [playerFilter, setPlayerFilter] = useState<PlayerDirectoryFilter>("ALL");
+  const [playerDirectory, setPlayerDirectory] = useState<{
+    players: PlayerDirectoryEntry[];
+    summary: { playerCount: number; playersWithDues: number; totalOutstanding: number };
+  }>({
+    players: [],
+    summary: { playerCount: 0, playersWithDues: 0, totalOutstanding: 0 },
+  });
+  const [playersLoading, setPlayersLoading] = useState(false);
+  const [playersError, setPlayersError] = useState<string | null>(null);
+  const [showPlayerForm, setShowPlayerForm] = useState(false);
+  const [playerForm, setPlayerForm] = useState<PlayerProfileForm>(EMPTY_PLAYER_PROFILE_FORM);
+  const [isCreatingPlayer, setIsCreatingPlayer] = useState(false);
+  const [playerFormError, setPlayerFormError] = useState<string | null>(null);
+  const [registerForPlayerIndex, setRegisterForPlayerIndex] = useState<number | null>(null);
+  const [playerPickerIndex, setPlayerPickerIndex] = useState<number | null>(null);
+  const [playerPickerSearch, setPlayerPickerSearch] = useState("");
+  const [playerPickerResults, setPlayerPickerResults] = useState<PlayerDirectoryEntry[]>([]);
+  const [playerPickerLoading, setPlayerPickerLoading] = useState(false);
+  const [playerPickerError, setPlayerPickerError] = useState<string | null>(null);
+  const [statement, setStatement] = useState<PlayerStatement | null>(null);
+  const [statementOpen, setStatementOpen] = useState(false);
+  const [statementLoading, setStatementLoading] = useState(false);
+  const [statementError, setStatementError] = useState<string | null>(null);
+  const [collectingPlayerId, setCollectingPlayerId] = useState<string | null>(null);
+  const [playerPaymentAmount, setPlayerPaymentAmount] = useState("");
+  const [playerPaymentMethod, setPlayerPaymentMethod] = useState<"CASH" | "UPI" | "CARD">("CASH");
+  const [playerPaymentError, setPlayerPaymentError] = useState<string | null>(null);
+  const [unpaidDateRangeEnabled, setUnpaidDateRangeEnabled] = useState(false);
+  const [unpaidDateRange, setUnpaidDateRange] = useState<DateRangeSelection>(() =>
+    initialDateRange(),
+  );
+  const [pendingTableId, setPendingTableId] = useState<string | null>(null);
   const [ledgerDateRange, setLedgerDateRange] = useState<DateRangeSelection>(() =>
     initialDateRange(),
   );
@@ -493,7 +560,10 @@ export default function SupervisorPage() {
     dateFrom: bookingsDateRange.from,
     dateTo: bookingsDateRange.to,
   });
-  const duesPage = useSessionPages("dues", refreshKey);
+  const duesPage = useSessionPages("dues", refreshKey, {
+    dateFrom: unpaidDateRangeEnabled ? unpaidDateRange.from : "",
+    dateTo: unpaidDateRangeEnabled ? unpaidDateRange.to : "",
+  });
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Entry | null>(null);
   const [form, setForm] = useState<WalkInForm>(() => emptyWalkInForm());
@@ -549,6 +619,119 @@ export default function SupervisorPage() {
     } catch (reason) {
       const details = reason instanceof Error ? ` ${reason.message}` : "";
       setError(`The change was saved, but supervisor data could not refresh.${details}`);
+    }
+  }
+
+  async function savePlayerProfile(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (isCreatingPlayer) return;
+    const creditLimit = Number(playerForm.creditLimit);
+    if (!Number.isSafeInteger(creditLimit) || creditLimit < 0) {
+      setPlayerFormError("Enter a valid whole-rupee credit limit.");
+      return;
+    }
+
+    setIsCreatingPlayer(true);
+    setPlayerFormError(null);
+    try {
+      const created = await createPlayerProfileAction({
+        fullName: playerForm.fullName,
+        nickname: playerForm.nickname,
+        phone: playerForm.phone,
+        primaryDiscipline: playerForm.primaryDiscipline,
+        preferredFormat: playerForm.preferredFormat === "NONE" ? null : playerForm.preferredFormat,
+        skillTier: playerForm.skillTier,
+        tabEnabled: playerForm.tabEnabled,
+        creditLimit,
+      });
+      if (registerForPlayerIndex !== null) {
+        setForm((current) => ({
+          ...current,
+          players: current.players.map((player, index) =>
+            index === registerForPlayerIndex
+              ? { ...player, name: created.fullName, profileId: created.id }
+              : player,
+          ),
+        }));
+        setRegisterForPlayerIndex(null);
+      }
+      setPlayerForm(EMPTY_PLAYER_PROFILE_FORM);
+      setShowPlayerForm(false);
+      setPlayerSearch("");
+      setPlayerFilter("ALL");
+      setPlayersError(null);
+      setRefreshKey((value) => value + 1);
+      if (playerPickerIndex !== null) {
+        setPlayerPickerIndex(null);
+        setPlayerPickerSearch("");
+      }
+    } catch (reason) {
+      setPlayerFormError(
+        reason instanceof Error ? reason.message : "Unable to create player profile.",
+      );
+    } finally {
+      setIsCreatingPlayer(false);
+    }
+  }
+
+  async function openPlayerPicker(index: number) {
+    setPlayerPickerIndex(index);
+    setPlayerPickerSearch("");
+    setPlayerPickerResults([]);
+    setPlayerPickerLoading(true);
+    setPlayerPickerError(null);
+  }
+
+  async function openPlayerStatement(playerId: string) {
+    setStatement(null);
+    setStatementOpen(true);
+    setStatementError(null);
+    setStatementLoading(true);
+    try {
+      setStatement(await getPlayerStatementAction(playerId));
+    } catch (reason) {
+      setStatementError(
+        reason instanceof Error ? reason.message : "Unable to load player account.",
+      );
+    } finally {
+      setStatementLoading(false);
+    }
+  }
+
+  async function collectPlayerPayment(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!statement || collectingPlayerId) return;
+    const amount = Number(playerPaymentAmount);
+    if (!Number.isSafeInteger(amount) || amount <= 0) {
+      setPlayerPaymentError("Enter a positive whole-rupee amount.");
+      return;
+    }
+    setCollectingPlayerId(statement.profile.id);
+    setPlayerPaymentError(null);
+    try {
+      await collectPlayerTabPaymentAction({
+        playerId: statement.profile.id,
+        amount,
+        paymentMethod: playerPaymentMethod,
+      });
+      setPlayerPaymentAmount("");
+      setStatement(await getPlayerStatementAction(statement.profile.id));
+      setPlayerDirectory((current) => ({
+        ...current,
+        players: current.players.map((player) =>
+          player.id === statement.profile.id
+            ? {
+                ...player,
+                outstandingAmount: Math.max(0, player.outstandingAmount - amount),
+              }
+            : player,
+        ),
+      }));
+      setRefreshKey((value) => value + 1);
+    } catch (reason) {
+      setPlayerPaymentError(reason instanceof Error ? reason.message : "Unable to record payment.");
+    } finally {
+      setCollectingPlayerId(null);
     }
   }
 
@@ -614,6 +797,66 @@ export default function SupervisorPage() {
     ledgerDateRange.to,
     refreshKey,
   ]);
+
+  useEffect(() => {
+    if (activeHistory !== "players") return;
+    let isCurrent = true;
+    setPlayersLoading(true);
+    setPlayersError(null);
+    void getPlayerDirectoryAction({
+      search: playerSearch,
+      filter: playerFilter,
+    })
+      .then((result) => {
+        if (!isCurrent) return;
+        setPlayerDirectory({
+          players: result.players,
+          summary: result.summary,
+        });
+      })
+      .catch((reason) => {
+        if (!isCurrent) return;
+        setPlayersError(
+          reason instanceof Error ? reason.message : "Unable to load player directory",
+        );
+      })
+      .finally(() => {
+        if (isCurrent) setPlayersLoading(false);
+      });
+    return () => {
+      isCurrent = false;
+    };
+  }, [activeHistory, playerFilter, playerSearch, refreshKey]);
+
+  useEffect(() => {
+    if (playerPickerIndex === null) return;
+    let isCurrent = true;
+    const timeout = window.setTimeout(
+      () => {
+        setPlayerPickerLoading(true);
+        setPlayerPickerError(null);
+        void getPlayerDirectoryAction({ search: playerPickerSearch, filter: "ALL" })
+          .then((result) => {
+            if (isCurrent) setPlayerPickerResults(result.players);
+          })
+          .catch((reason) => {
+            if (!isCurrent) return;
+            setPlayerPickerResults([]);
+            setPlayerPickerError(
+              reason instanceof Error ? reason.message : "Unable to load registered players.",
+            );
+          })
+          .finally(() => {
+            if (isCurrent) setPlayerPickerLoading(false);
+          });
+      },
+      playerPickerSearch ? 180 : 0,
+    );
+    return () => {
+      isCurrent = false;
+      window.clearTimeout(timeout);
+    };
+  }, [playerPickerIndex, playerPickerSearch]);
 
   const tables = useMemo(() => snapshot, [snapshot]);
   const activeTableCount = tables.filter((table) =>
@@ -813,6 +1056,7 @@ export default function SupervisorPage() {
     }
     setWalkInValidation({ players: {}, message: null });
     setIsSavingWalkIn(true);
+    if (!editing) setPendingTableId(form.tableId);
     try {
       if (editing?.sessionId) {
         await updateWalkInSessionAction({
@@ -838,6 +1082,7 @@ export default function SupervisorPage() {
       setError(reason instanceof Error ? reason.message : "Unable to save session");
     } finally {
       setIsSavingWalkIn(false);
+      if (!editing) setPendingTableId(null);
     }
   }
 
@@ -912,6 +1157,10 @@ export default function SupervisorPage() {
   async function closeCurrentSession() {
     if (!endSession || isEndingSession) return;
     setIsEndingSession(true);
+    const closingTableId = snapshot.find((table) =>
+      table.sessions.some((session) => session.id === endSession.sessionId),
+    )?.id;
+    setPendingTableId(closingTableId ?? null);
     try {
       await closeSessionAction({
         sessionId: endSession.sessionId,
@@ -926,6 +1175,7 @@ export default function SupervisorPage() {
       setError(reason instanceof Error ? reason.message : "Unable to close session");
     } finally {
       setIsEndingSession(false);
+      setPendingTableId(null);
     }
   }
 
@@ -946,6 +1196,7 @@ export default function SupervisorPage() {
   async function startBooking(bookingId: string) {
     if (startingBookingId) return;
     setStartingBookingId(bookingId);
+    setPendingTableId(bookings.find((booking) => booking.id === bookingId)?.tableId ?? null);
     try {
       await startOnlineBookingAction(bookingId);
       setError(null);
@@ -954,6 +1205,7 @@ export default function SupervisorPage() {
       setError(reason instanceof Error ? reason.message : "Unable to start this booking");
     } finally {
       setStartingBookingId(null);
+      setPendingTableId(null);
     }
   }
 
@@ -979,23 +1231,81 @@ export default function SupervisorPage() {
     setForm((current) => ({
       ...current,
       players: current.players.map((player, playerIndex) =>
-        playerIndex === index ? { ...player, name } : player,
+        playerIndex === index ? { ...player, name, profileId: undefined } : player,
       ),
     }));
     setWalkInValidation({ players: {}, message: null });
+  }
+
+  function selectPlayerProfile(index: number, profile: PlayerDirectoryEntry) {
+    setForm((current) => ({
+      ...current,
+      players: current.players.map((player, playerIndex) =>
+        playerIndex === index
+          ? { ...player, name: profile.fullName, profileId: profile.id }
+          : player,
+      ),
+    }));
+    setWalkInValidation({ players: {}, message: null });
+    setPlayerPickerIndex(null);
+    setPlayerPickerSearch("");
   }
 
   function playerField(index: number) {
     const player = form.players[index];
     if (!player) return null;
     return (
-      <WalkInPlayerField
-        key={`walkin-player-${index}`}
-        index={index}
-        name={player.name}
-        error={walkInValidation.players[index]}
-        onNameChange={(name) => changePlayerName(index, name)}
-      />
+      <div key={`walkin-player-${index}`} className="space-y-1">
+        <div className="flex items-start gap-2">
+          <div className="min-w-0 flex-1">
+            <WalkInPlayerField
+              index={index}
+              name={player.name}
+              error={walkInValidation.players[index]}
+              onNameChange={(name) => changePlayerName(index, name)}
+            />
+          </div>
+          {!editing && player.profileId ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="min-h-10 shrink-0 px-2.5 text-xs"
+              onClick={() =>
+                setForm((current) => ({
+                  ...current,
+                  players: current.players.map((item, playerIndex) =>
+                    playerIndex === index ? { ...item, profileId: undefined } : item,
+                  ),
+                }))
+              }
+            >
+              Guest
+            </Button>
+          ) : !editing ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="min-h-10 shrink-0 gap-1.5 px-2.5 text-xs"
+              onClick={() => void openPlayerPicker(index)}
+            >
+              <UsersRound className="h-3.5 w-3.5" aria-hidden="true" />
+              Regular
+            </Button>
+          ) : null}
+        </div>
+        <p
+          className={cn(
+            "pl-11 text-[11px]",
+            player.profileId ? "font-medium text-felt" : "text-muted-foreground",
+          )}
+        >
+          {player.profileId
+            ? "Registered account selected"
+            : "Guest name · not linked to an account"}
+        </p>
+      </div>
     );
   }
 
@@ -1016,7 +1326,9 @@ export default function SupervisorPage() {
                     ? "Unpaid"
                     : activeHistory === "ledger"
                       ? "Ledger"
-                      : "Bookings"}
+                      : activeHistory === "bookings"
+                        ? "Bookings"
+                        : "Players"}
               </h1>
             </div>
           </div>
@@ -1163,6 +1475,9 @@ export default function SupervisorPage() {
                       <Label className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
                         {form.gameFormat === "SOLO" ? "Solo player" : "Players"}
                       </Label>
+                      <p className="mt-1 text-[11px] text-muted-foreground">
+                        Enter guest names or select a regular player account.
+                      </p>
                       <p className="mt-1 text-xs text-muted-foreground">
                         {form.gameFormat === "SINGLES"
                           ? "1 vs 1"
@@ -1498,9 +1813,114 @@ export default function SupervisorPage() {
             </DialogContent>
           </Dialog>
 
+          <Dialog
+            open={playerPickerIndex !== null}
+            onOpenChange={(open) => {
+              if (!open) setPlayerPickerIndex(null);
+            }}
+          >
+            <DialogContent className="max-h-[88dvh] w-[calc(100%-1rem)] max-w-md overflow-y-auto rounded-3xl border-border/80 bg-background p-4 shadow-2xl sm:p-5">
+              <DialogHeader className="pr-7 text-left">
+                <DialogTitle>Choose a regular player</DialogTitle>
+                <DialogDescription>
+                  Or keep the name as a guest to avoid linking this session to an account.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-3">
+                <div className="relative">
+                  <Search
+                    className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+                    aria-hidden="true"
+                  />
+                  <Input
+                    value={playerPickerSearch}
+                    onChange={(event) => setPlayerPickerSearch(event.target.value)}
+                    placeholder="Search name, nickname, or mobile"
+                    aria-label="Search regular players"
+                    className="min-h-11 pl-9"
+                  />
+                </div>
+                {playerPickerLoading ? (
+                  <div className="space-y-2" role="status" aria-label="Loading regular players">
+                    {[0, 1, 2].map((index) => (
+                      <Skeleton key={index} className="h-16 rounded-xl" />
+                    ))}
+                  </div>
+                ) : null}
+                {playerPickerError ? (
+                  <p role="alert" className="rounded-xl bg-warning/10 p-3 text-sm text-warning">
+                    {playerPickerError}
+                  </p>
+                ) : null}
+                {!playerPickerLoading && !playerPickerError ? (
+                  <div className="max-h-[42dvh] space-y-2 overflow-y-auto">
+                    {playerPickerResults.map((player) => (
+                      <button
+                        key={player.id}
+                        type="button"
+                        onClick={() => {
+                          if (playerPickerIndex !== null) {
+                            selectPlayerProfile(playerPickerIndex, player);
+                          }
+                        }}
+                        className="flex min-h-16 w-full items-center justify-between gap-3 rounded-xl bg-surface px-3 py-2.5 text-left transition-colors hover:bg-surface-strong"
+                      >
+                        <span className="min-w-0">
+                          <span className="block truncate font-semibold">{player.fullName}</span>
+                          <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+                            {player.nickname ? `${player.nickname} · ` : ""}
+                            {player.phone}
+                          </span>
+                        </span>
+                        <span className="shrink-0 text-right">
+                          <span className="block text-sm font-bold text-felt">
+                            {money(player.outstandingAmount)}
+                          </span>
+                          <span className="text-[10px] text-muted-foreground">due</span>
+                        </span>
+                      </button>
+                    ))}
+                    {playerPickerResults.length === 0 ? (
+                      <p className="rounded-xl bg-surface/60 px-3 py-5 text-center text-sm text-muted-foreground">
+                        No registered players match that search.
+                      </p>
+                    ) : null}
+                  </div>
+                ) : null}
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="min-h-10 w-full gap-2"
+                  onClick={() => setPlayerPickerIndex(null)}
+                >
+                  <UserRound className="h-4 w-4" aria-hidden="true" />
+                  Continue as guest
+                </Button>
+                <Button
+                  type="button"
+                  className="min-h-11 w-full gap-2"
+                  onClick={() => {
+                    setRegisterForPlayerIndex(playerPickerIndex);
+                    setPlayerFormError(null);
+                    setPlayerPickerIndex(null);
+                    setShowPlayerForm(true);
+                  }}
+                >
+                  <Plus className="h-4 w-4" aria-hidden="true" />
+                  Register and add to this table
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
+
           <div className="mt-5 hidden lg:block">
-            <div className="grid grid-cols-4 gap-1 rounded-xl border border-border bg-surface p-1">
-              {(["tables", "unpaid", "ledger", "bookings"] as const).map((view) => (
+            <div
+              className={cn(
+                "grid gap-1 rounded-xl border border-border bg-surface p-1",
+                "grid-cols-5",
+              )}
+            >
+              {(["tables", "unpaid", "ledger", "bookings", "players"] as const).map((view) => (
                 <button
                   key={view}
                   type="button"
@@ -1711,13 +2131,30 @@ export default function SupervisorPage() {
                       <Card
                         key={table.id}
                         className={cn(
-                          "overflow-hidden border-border bg-surface",
+                          "relative overflow-hidden border-border bg-surface",
                           active && !isMaintenance && "border-l-4 border-l-felt",
                           overtimeMinutes > 0 && "border-destructive/50",
                           !active && !nowBooking && "border-l-4 border-l-border",
                         )}
                       >
-                        <CardContent className="p-4">
+                        <CardContent className="relative p-4">
+                          {pendingTableId === table.id ? (
+                            <div
+                              role="status"
+                              aria-label={`Updating ${table.name}`}
+                              className="absolute inset-0 z-10 flex flex-col justify-between bg-surface/95 p-4 backdrop-blur-[2px]"
+                            >
+                              <div className="space-y-3">
+                                <Skeleton className="h-6 w-2/3" />
+                                <Skeleton className="h-4 w-1/2" />
+                              </div>
+                              <div className="space-y-3">
+                                <Skeleton className="h-4 w-full" />
+                                <Skeleton className="h-4 w-4/5" />
+                                <Skeleton className="h-11 w-full rounded-xl" />
+                              </div>
+                            </div>
+                          ) : null}
                           <div className="flex items-start justify-between gap-3">
                             <div className="min-w-0">
                               <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
@@ -2034,8 +2471,644 @@ export default function SupervisorPage() {
           ) : null}
 
           <div className="mt-4 grid gap-6 lg:mt-6">
-            {activeHistory === "unpaid" ? (
+            {activeHistory === "players" || showPlayerForm ? (
               <div className="space-y-4">
+                <div className="grid grid-cols-3 gap-2" aria-label="Player directory summary">
+                  <Metric
+                    icon={UserRound}
+                    label="Players"
+                    value={String(playerDirectory.summary.playerCount)}
+                  />
+                  <Metric
+                    icon={CircleDollarSign}
+                    label="Outstanding"
+                    value={money(playerDirectory.summary.totalOutstanding)}
+                  />
+                  <Metric
+                    icon={ReceiptText}
+                    label="With dues"
+                    value={String(playerDirectory.summary.playersWithDues)}
+                  />
+                </div>
+
+                <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
+                  <p className="text-sm text-muted-foreground">
+                    Registered players and their running account balances.
+                  </p>
+                  <Button
+                    type="button"
+                    className="min-h-11 w-full gap-2 sm:w-auto"
+                    onClick={() => {
+                      setPlayerFormError(null);
+                      setShowPlayerForm(true);
+                    }}
+                  >
+                    <Plus className="h-4 w-4" aria-hidden="true" />
+                    Register player
+                  </Button>
+                </div>
+
+                <Dialog
+                  open={showPlayerForm}
+                  onOpenChange={(open) => {
+                    if (!isCreatingPlayer) {
+                      setShowPlayerForm(open);
+                      if (!open) setRegisterForPlayerIndex(null);
+                    }
+                  }}
+                >
+                  <DialogContent className="max-h-[92dvh] w-[calc(100%-1rem)] max-w-lg overflow-y-auto rounded-3xl border-border/80 bg-background p-4 shadow-2xl sm:p-5">
+                    <DialogHeader className="pr-7 text-left">
+                      <DialogTitle>
+                        {registerForPlayerIndex !== null
+                          ? "Register & add player"
+                          : "Add regular player"}
+                      </DialogTitle>
+                      <DialogDescription>
+                        {registerForPlayerIndex !== null
+                          ? "Save their details once and select them for this table."
+                          : "Save their details for faster table setup and dues tracking."}
+                      </DialogDescription>
+                    </DialogHeader>
+                    <form onSubmit={(event) => void savePlayerProfile(event)} className="space-y-3">
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <Field id="player-full-name" label="Full name" required>
+                          <div className="relative">
+                            <UserRound
+                              className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+                              aria-hidden="true"
+                            />
+                            <Input
+                              id="player-full-name"
+                              required
+                              maxLength={120}
+                              autoComplete="name"
+                              value={playerForm.fullName}
+                              onChange={(event) =>
+                                setPlayerForm({ ...playerForm, fullName: event.target.value })
+                              }
+                              placeholder="Player's full name"
+                              className="min-h-11 pl-9"
+                            />
+                          </div>
+                        </Field>
+                        <Field id="player-phone" label="Mobile number" required>
+                          <div className="relative">
+                            <Smartphone
+                              className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+                              aria-hidden="true"
+                            />
+                            <Input
+                              id="player-phone"
+                              required
+                              type="tel"
+                              inputMode="tel"
+                              autoComplete="tel"
+                              value={playerForm.phone}
+                              onChange={(event) =>
+                                setPlayerForm({ ...playerForm, phone: event.target.value })
+                              }
+                              placeholder="10-digit mobile number"
+                              className="min-h-11 pl-9"
+                            />
+                          </div>
+                        </Field>
+                      </div>
+
+                      <Field id="player-nickname" label="Nickname (optional)">
+                        <Input
+                          id="player-nickname"
+                          maxLength={60}
+                          value={playerForm.nickname}
+                          onChange={(event) =>
+                            setPlayerForm({ ...playerForm, nickname: event.target.value })
+                          }
+                          placeholder="How the team knows them"
+                          className="min-h-11"
+                        />
+                      </Field>
+
+                      <div className="space-y-2">
+                        <p className="text-xs font-medium text-muted-foreground">Usually plays</p>
+                        <div
+                          className="grid grid-cols-3 gap-2"
+                          role="group"
+                          aria-label="Discipline"
+                        >
+                          {(
+                            [
+                              ["BOTH", "Both"],
+                              ["SNOOKER", "Snooker"],
+                              ["POOL", "Pool"],
+                            ] as const
+                          ).map(([value, label]) => (
+                            <button
+                              key={value}
+                              type="button"
+                              aria-pressed={playerForm.primaryDiscipline === value}
+                              onClick={() =>
+                                setPlayerForm({ ...playerForm, primaryDiscipline: value })
+                              }
+                              className={cn(
+                                "flex min-h-10 items-center justify-center gap-1.5 rounded-full px-2 text-xs font-semibold transition-colors",
+                                playerForm.primaryDiscipline === value
+                                  ? "bg-felt text-primary-foreground"
+                                  : "bg-surface text-muted-foreground hover:text-foreground",
+                              )}
+                            >
+                              <Table2 className="h-3.5 w-3.5" aria-hidden="true" />
+                              {label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="rounded-2xl bg-surface/70 p-3">
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="flex min-w-0 items-center gap-3">
+                            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-felt/10 text-felt">
+                              <WalletCards className="h-4 w-4" aria-hidden="true" />
+                            </span>
+                            <span className="min-w-0">
+                              <span className="block text-sm font-semibold">
+                                Allow tab / pay later
+                              </span>
+                              <span className="block text-xs text-muted-foreground">
+                                Add table charges to this player’s dues
+                              </span>
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            role="switch"
+                            aria-checked={playerForm.tabEnabled}
+                            aria-label="Allow tab and pay later"
+                            onClick={() =>
+                              setPlayerForm({ ...playerForm, tabEnabled: !playerForm.tabEnabled })
+                            }
+                            className={cn(
+                              "relative h-6 w-11 shrink-0 rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-felt focus-visible:ring-offset-2",
+                              playerForm.tabEnabled ? "bg-felt" : "bg-muted",
+                            )}
+                          >
+                            <span
+                              className={cn(
+                                "absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-[left]",
+                                playerForm.tabEnabled ? "left-[22px]" : "left-0.5",
+                              )}
+                            />
+                          </button>
+                        </div>
+                        {playerForm.tabEnabled ? (
+                          <Field
+                            id="player-credit-limit"
+                            label="Soft credit limit (₹)"
+                            className="mt-3"
+                          >
+                            <Input
+                              id="player-credit-limit"
+                              type="number"
+                              min={0}
+                              max={999999999}
+                              step={1}
+                              inputMode="numeric"
+                              value={playerForm.creditLimit}
+                              onChange={(event) =>
+                                setPlayerForm({ ...playerForm, creditLimit: event.target.value })
+                              }
+                              className="min-h-10"
+                            />
+                          </Field>
+                        ) : null}
+                      </div>
+
+                      <details className="group rounded-xl bg-surface/40 px-3 py-2">
+                        <summary className="flex min-h-8 cursor-pointer list-none items-center justify-between gap-2 text-xs font-semibold text-muted-foreground [&::-webkit-details-marker]:hidden">
+                          Optional preferences
+                          <ChevronDown
+                            className="h-4 w-4 transition-transform group-open:rotate-180"
+                            aria-hidden="true"
+                          />
+                        </summary>
+                        <div className="mt-2 grid gap-3 sm:grid-cols-2">
+                          <Field id="player-format" label="Preferred format">
+                            <Select
+                              value={playerForm.preferredFormat}
+                              onValueChange={(value: PlayerProfileForm["preferredFormat"]) =>
+                                setPlayerForm({ ...playerForm, preferredFormat: value })
+                              }
+                            >
+                              <SelectTrigger id="player-format" aria-label="Preferred game format">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="NONE">No preference</SelectItem>
+                                <SelectItem value="SINGLES">Singles</SelectItem>
+                                <SelectItem value="DOUBLES">Doubles</SelectItem>
+                                <SelectItem value="GROUP">Group</SelectItem>
+                                <SelectItem value="SOLO">Solo</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </Field>
+                          <Field id="player-skill-tier" label="Player level">
+                            <Select
+                              value={playerForm.skillTier}
+                              onValueChange={(value: PlayerProfileForm["skillTier"]) =>
+                                setPlayerForm({ ...playerForm, skillTier: value })
+                              }
+                            >
+                              <SelectTrigger id="player-skill-tier" aria-label="Player level">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="NOVICE">Novice</SelectItem>
+                                <SelectItem value="CLUB_REGULAR">Club regular</SelectItem>
+                                <SelectItem value="STATE_PRO">State pro</SelectItem>
+                                <SelectItem value="PROFESSIONAL">Professional</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </Field>
+                        </div>
+                      </details>
+                      {playerFormError ? (
+                        <p role="alert" className="text-sm text-destructive">
+                          {playerFormError}
+                        </p>
+                      ) : null}
+                      <DialogFooter className="flex-row gap-2 sm:justify-end">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="min-h-11 flex-1 sm:flex-none"
+                          disabled={isCreatingPlayer}
+                          onClick={() => {
+                            setShowPlayerForm(false);
+                            setRegisterForPlayerIndex(null);
+                          }}
+                        >
+                          Cancel
+                        </Button>
+                        <Button
+                          type="submit"
+                          className="min-h-11 flex-1 gap-2 sm:flex-none"
+                          loading={isCreatingPlayer}
+                          loadingText="Registering…"
+                        >
+                          <UserRound className="h-4 w-4" aria-hidden="true" />
+                          {registerForPlayerIndex !== null
+                            ? "Register & add to table"
+                            : "Create player"}
+                        </Button>
+                      </DialogFooter>
+                    </form>
+                  </DialogContent>
+                </Dialog>
+
+                <div className="space-y-3">
+                  <div className="flex flex-col gap-2 sm:flex-row">
+                    <div className="relative flex-1">
+                      <Search
+                        className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+                        aria-hidden="true"
+                      />
+                      <Input
+                        value={playerSearch}
+                        onChange={(event) => setPlayerSearch(event.target.value)}
+                        placeholder="Search players by name, nickname, or phone"
+                        aria-label="Search players"
+                        className="min-h-11 pl-9"
+                      />
+                    </div>
+                    <Select
+                      value={playerFilter}
+                      onValueChange={(value) => setPlayerFilter(value as PlayerDirectoryFilter)}
+                    >
+                      <SelectTrigger
+                        className="min-h-11 min-w-[12rem] border-border bg-background/70 text-sm shadow-none"
+                        aria-label="Filter players"
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="ALL">All players</SelectItem>
+                        <SelectItem value="HAS_DUES">Has dues</SelectItem>
+                        <SelectItem value="OVER_LIMIT">Over limit</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {playersError ? (
+                    <p role="alert" className="text-sm text-destructive">
+                      {playersError}
+                    </p>
+                  ) : null}
+                </div>
+
+                {playersLoading ? (
+                  <div className="grid gap-3 lg:grid-cols-2">
+                    {Array.from({ length: 4 }, (_, index) => (
+                      <div
+                        key={index}
+                        className="space-y-3 rounded-2xl border border-border bg-surface/50 p-4"
+                      >
+                        <Skeleton className="h-4 w-2/3" />
+                        <Skeleton className="h-4 w-1/2" />
+                        <Skeleton className="h-10 w-full rounded-xl" />
+                      </div>
+                    ))}
+                  </div>
+                ) : playerDirectory.players.length === 0 ? (
+                  <div className="rounded-2xl border border-dashed border-border bg-surface/30 px-6 py-10 text-center">
+                    <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-felt/10 text-felt">
+                      <UserRound className="h-5 w-5" aria-hidden="true" />
+                    </span>
+                    <p className="mt-3 font-semibold">No players match</p>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      Try a different search or switch the player filter.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="grid gap-3 lg:grid-cols-2">
+                    {playerDirectory.players.map((player) => (
+                      <article
+                        key={player.id}
+                        className="group min-w-0 overflow-hidden rounded-2xl border border-border/80 bg-surface p-4 shadow-[0_4px_18px_rgba(0,0,0,0.2)] transition-colors hover:border-felt/40"
+                      >
+                        <div className="min-w-0">
+                          <p className="break-words text-base font-bold leading-snug [overflow-wrap:anywhere]">
+                            {player.fullName}
+                          </p>
+                          {player.nickname ? (
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              “{player.nickname}”
+                            </p>
+                          ) : null}
+                        </div>
+
+                        <div className="mt-4 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                          <a
+                            href={`tel:${player.phone.replace(/[^\d+]/g, "")}`}
+                            aria-label={`Call ${player.fullName}`}
+                            className="inline-flex min-h-8 items-center gap-1.5 rounded-full bg-felt/10 px-3 py-1 font-semibold text-felt transition-colors hover:bg-felt/20"
+                          >
+                            <Phone className="h-3.5 w-3.5" aria-hidden="true" />
+                            {player.phone}
+                          </a>
+                          <span className="rounded-lg bg-background/70 px-2 py-1">
+                            {player.skillTier}
+                          </span>
+                        </div>
+
+                        <div className="mt-4 flex items-center justify-between gap-3 border-t border-border/70 pt-3">
+                          <div>
+                            <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                              Open sessions
+                            </p>
+                            <p className="mt-1 text-sm font-semibold">{player.openSessionCount}</p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                              Outstanding
+                            </p>
+                            <p
+                              className={cn(
+                                "mt-1 text-lg font-bold",
+                                player.outstandingAmount > 0 ? "text-felt" : "text-emerald-500",
+                              )}
+                            >
+                              {money(player.outstandingAmount)}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="mt-3 grid grid-cols-2 gap-2">
+                          <a
+                            href={`tel:${player.phone.replace(/[^\d+]/g, "")}`}
+                            aria-label={`Call ${player.fullName}`}
+                            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl bg-felt px-3 text-sm font-semibold text-primary-foreground transition-colors hover:bg-felt/90"
+                          >
+                            <Phone className="h-4 w-4" aria-hidden="true" />
+                            Call
+                          </a>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="min-h-10 gap-2"
+                            onClick={() => void openPlayerStatement(player.id)}
+                          >
+                            <FileText className="h-4 w-4" aria-hidden="true" />
+                            History
+                          </Button>
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                )}
+
+                <Dialog
+                  open={statementOpen}
+                  onOpenChange={(open) => {
+                    setStatementOpen(open);
+                    if (!open) {
+                      setStatement(null);
+                      setStatementError(null);
+                      setPlayerPaymentError(null);
+                    }
+                  }}
+                >
+                  <DialogContent className="max-h-[90dvh] w-[calc(100%-1rem)] max-w-2xl overflow-y-auto rounded-3xl border-border/80 bg-background p-4 shadow-2xl sm:p-6">
+                    <DialogHeader className="pr-7 text-left">
+                      <DialogTitle>{statement?.profile.fullName ?? "Player account"}</DialogTitle>
+                      <DialogDescription>
+                        Dues, payments, and completed match history. No match outcomes are inferred.
+                      </DialogDescription>
+                    </DialogHeader>
+                    {statementLoading ? (
+                      <div
+                        className="space-y-3"
+                        role="status"
+                        aria-label="Loading account statement"
+                      >
+                        <Skeleton className="h-20 rounded-2xl" />
+                        <Skeleton className="h-28 rounded-2xl" />
+                      </div>
+                    ) : statementError ? (
+                      <p
+                        role="alert"
+                        className="rounded-xl bg-destructive/10 p-3 text-sm text-destructive"
+                      >
+                        {statementError}
+                      </p>
+                    ) : statement ? (
+                      <div className="space-y-5">
+                        <div className="grid grid-cols-2 gap-2">
+                          <Metric
+                            icon={CircleDollarSign}
+                            label="Outstanding"
+                            value={money(statement.balance)}
+                          />
+                          <Metric
+                            icon={ReceiptText}
+                            label="Open sessions"
+                            value={String(statement.openSessionCount)}
+                          />
+                        </div>
+
+                        <section className="space-y-2">
+                          <div className="flex items-center justify-between">
+                            <h3 className="font-semibold">Running dues</h3>
+                            <span className="text-xs text-muted-foreground">
+                              Oldest balances settle first
+                            </span>
+                          </div>
+                          {statement.dues.length === 0 ? (
+                            <p className="rounded-xl bg-surface/70 px-3 py-4 text-sm text-muted-foreground">
+                              No account charges are linked to this player yet.
+                            </p>
+                          ) : (
+                            <div className="space-y-2">
+                              {statement.dues.map((due) => (
+                                <article key={due.id} className="rounded-xl bg-surface/75 p-3">
+                                  <div className="flex items-start justify-between gap-3">
+                                    <div className="min-w-0">
+                                      <p className="font-semibold">
+                                        {due.session.table.name} · {date(due.session.startTime)}
+                                      </p>
+                                      <p className="mt-1 text-xs text-muted-foreground">
+                                        {due.opponentNames
+                                          .filter(
+                                            (name) =>
+                                              name.toLocaleLowerCase() !==
+                                              statement.profile.fullName.toLocaleLowerCase(),
+                                          )
+                                          .join(", ") || "Match session"}
+                                      </p>
+                                    </div>
+                                    <div className="shrink-0 text-right">
+                                      <p className="font-bold">{money(due.amount)}</p>
+                                      <p className="text-xs text-warning">
+                                        {money(due.outstandingAmount)} due
+                                      </p>
+                                    </div>
+                                  </div>
+                                  {due.payments.length > 0 ? (
+                                    <div className="mt-2 space-y-1 border-t border-border/60 pt-2">
+                                      {due.payments.map((allocation) => (
+                                        <p
+                                          key={allocation.id}
+                                          className="flex justify-between gap-2 text-xs text-muted-foreground"
+                                        >
+                                          <span>
+                                            Payment · {date(allocation.createdAt)} ·{" "}
+                                            {allocation.payment.paymentMethod}
+                                          </span>
+                                          <span>{money(allocation.amount)}</span>
+                                        </p>
+                                      ))}
+                                    </div>
+                                  ) : null}
+                                </article>
+                              ))}
+                            </div>
+                          )}
+                        </section>
+
+                        <section className="space-y-2">
+                          <h3 className="font-semibold">Match history</h3>
+                          {statement.matches.length === 0 ? (
+                            <p className="rounded-xl bg-surface/70 px-3 py-4 text-sm text-muted-foreground">
+                              No completed matches are linked to this player yet.
+                            </p>
+                          ) : (
+                            <div className="space-y-2">
+                              {statement.matches.map((match) => {
+                                const opponents = sessionPlayers(match.players)
+                                  .filter((player) => player.profileId !== statement.profile.id)
+                                  .map((player) => player.name);
+                                return (
+                                  <div
+                                    key={match.id}
+                                    className="flex items-center justify-between gap-3 rounded-xl bg-surface/70 px-3 py-2.5"
+                                  >
+                                    <div className="min-w-0">
+                                      <p className="truncate text-sm font-semibold">
+                                        {match.tableName} · {date(match.startTime)}
+                                      </p>
+                                      <p className="truncate text-xs text-muted-foreground">
+                                        {match.gameLabel ||
+                                          gameFormatDescription(match.gameFormat) ||
+                                          "Match"}
+                                        {opponents.length > 0
+                                          ? ` · vs ${opponents.join(", ")}`
+                                          : ""}
+                                      </p>
+                                    </div>
+                                    <Badge variant="outline" className="shrink-0">
+                                      {match.paymentStatus === "PAID" ? "Paid" : "Unpaid"}
+                                    </Badge>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </section>
+
+                        {statement.balance > 0 ? (
+                          <form
+                            onSubmit={(event) => void collectPlayerPayment(event)}
+                            className="space-y-3 rounded-2xl bg-felt/5 p-3"
+                          >
+                            <h3 className="font-semibold">Record account payment</h3>
+                            <div className="grid grid-cols-2 gap-2">
+                              <Input
+                                type="number"
+                                min={1}
+                                step={1}
+                                inputMode="numeric"
+                                value={playerPaymentAmount}
+                                onChange={(event) => setPlayerPaymentAmount(event.target.value)}
+                                placeholder={`Amount · max ${statement.balance}`}
+                                aria-label="Player payment amount"
+                              />
+                              <Select
+                                value={playerPaymentMethod}
+                                onValueChange={(value: "CASH" | "UPI" | "CARD") =>
+                                  setPlayerPaymentMethod(value)
+                                }
+                              >
+                                <SelectTrigger aria-label="Player payment method">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="CASH">Cash</SelectItem>
+                                  <SelectItem value="UPI">UPI</SelectItem>
+                                  <SelectItem value="CARD">Card</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            {playerPaymentError ? (
+                              <p role="alert" className="text-sm text-destructive">
+                                {playerPaymentError}
+                              </p>
+                            ) : null}
+                            <Button
+                              type="submit"
+                              className="min-h-11 w-full"
+                              loading={collectingPlayerId === statement.profile.id}
+                              loadingText="Recording payment…"
+                            >
+                              Record payment
+                            </Button>
+                          </form>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </DialogContent>
+                </Dialog>
+              </div>
+            ) : null}
+
+            {activeHistory === "unpaid" ? (
+              <div className="min-w-0 space-y-4">
                 <div>
                   <div className="grid grid-cols-2 gap-2" aria-label="Outstanding payment summary">
                     <Metric
@@ -2052,6 +3125,47 @@ export default function SupervisorPage() {
                   <p className="mt-2 text-xs text-muted-foreground">
                     Completed walk-ins and bookings with an outstanding balance.
                   </p>
+                </div>
+                <div className="space-y-3">
+                  <div
+                    className="flex rounded-full bg-background/70 p-1"
+                    role="group"
+                    aria-label="Unpaid date filter"
+                  >
+                    <button
+                      type="button"
+                      aria-pressed={!unpaidDateRangeEnabled}
+                      onClick={() => setUnpaidDateRangeEnabled(false)}
+                      className={cn(
+                        "min-h-9 flex-1 rounded-full px-3 text-xs font-semibold transition-colors",
+                        unpaidDateRangeEnabled
+                          ? "text-muted-foreground hover:text-foreground"
+                          : "bg-felt text-primary-foreground shadow-sm",
+                      )}
+                    >
+                      All outstanding
+                    </button>
+                    <button
+                      type="button"
+                      aria-pressed={unpaidDateRangeEnabled}
+                      onClick={() => setUnpaidDateRangeEnabled(true)}
+                      className={cn(
+                        "min-h-9 flex-1 rounded-full px-3 text-xs font-semibold transition-colors",
+                        unpaidDateRangeEnabled
+                          ? "bg-felt text-primary-foreground shadow-sm"
+                          : "text-muted-foreground hover:text-foreground",
+                      )}
+                    >
+                      Filter by date
+                    </button>
+                  </div>
+                  {unpaidDateRangeEnabled ? (
+                    <DateRangeFilter
+                      value={unpaidDateRange}
+                      onChange={setUnpaidDateRange}
+                      label="Unpaid date presets"
+                    />
+                  ) : null}
                 </div>
                 <section className="grid min-w-0 gap-3 lg:grid-cols-2" aria-label="Unpaid sessions">
                   {dues.length === 0 && duesPage.loading ? (
@@ -2878,13 +3992,14 @@ export default function SupervisorPage() {
           aria-label="Supervisor navigation"
           className="fixed inset-x-0 bottom-0 z-40 border-t border-border/80 bg-background/95 px-2 pt-1.5 pb-[calc(env(safe-area-inset-bottom)+0.375rem)] shadow-[0_-8px_30px_rgba(0,0,0,0.28)] backdrop-blur-xl lg:hidden"
         >
-          <div className="mx-auto grid max-w-md grid-cols-4 gap-1">
+          <div className={cn("mx-auto grid max-w-md gap-1", "grid-cols-5")}>
             {(
               [
                 { view: "tables", label: "Tables", icon: Table2 },
                 { view: "unpaid", label: "Unpaid", icon: ReceiptText },
                 { view: "ledger", label: "Ledger", icon: FileText },
                 { view: "bookings", label: "Bookings", icon: CalendarDays },
+                { view: "players", label: "Players", icon: UserRound },
               ] as const
             ).map(({ view, label, icon: Icon }) => {
               const selected = activeHistory === view;

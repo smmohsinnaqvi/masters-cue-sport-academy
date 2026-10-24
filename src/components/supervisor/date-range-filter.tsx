@@ -60,7 +60,7 @@ export function DateRangeFilter({
 
   return (
     <section
-      className="space-y-2.5 rounded-2xl border border-border/80 bg-background/35 p-3"
+      className="min-w-0 max-w-full space-y-2.5 overflow-hidden rounded-2xl border border-border/80 bg-background/35 p-3"
       aria-label={`${label} date range`}
     >
       <div className="flex min-w-0 items-center gap-2">
@@ -94,7 +94,11 @@ export function DateRangeFilter({
           <ChevronRight className="h-4 w-4" aria-hidden="true" />
         </button>
       </div>
-      <div className="no-scrollbar flex gap-2 overflow-x-auto pb-1" role="group" aria-label={label}>
+      <div
+        className="no-scrollbar flex min-w-0 gap-2 overflow-x-auto pb-1"
+        role="group"
+        aria-label={label}
+      >
         {DATE_RANGE_PRESETS.map((preset) => {
           const selected = customEditing
             ? preset.value === "CUSTOM"
